@@ -3,7 +3,7 @@ import { QRCodeCanvas } from 'qrcode.react';
 import Barcode from 'react-barcode';
 import { apiDelete, apiErrorMessage, apiPatch, apiPost, dateFmt, money, Order, TrackStep, DELIVERY_STATUS_LABELS } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { exportOrdersToExcel } from '../lib/export';
+import { exportOrdersToCsv } from '../lib/export';
 import { Badge, Button, ButtonGhost, Card, EmptyState, Field, Input, Modal, orderStatusTone, paymentTone, Select, Spinner, Stars, Textarea } from './ui';
 
 export function QrPanel({ value }: { value: string }) {
@@ -313,7 +313,7 @@ export function OrderList({ orders, loading, onRefresh, canExport }: OrderListPr
       <div className="mb-4 flex justify-end gap-2">
         <ButtonGhost onClick={onRefresh}>Refresh</ButtonGhost>
         {canExport && orders.length > 0 && (
-          <Button onClick={() => exportOrdersToExcel(orders, 'orders.xlsx')}>⬇ Export Excel</Button>
+          <Button onClick={() => exportOrdersToCsv(orders, 'orders.csv')}>⬇ Export CSV</Button>
         )}
       </div>
 

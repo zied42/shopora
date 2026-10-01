@@ -288,7 +288,7 @@ export function createMemoryStore(): Store {
       const labels: Record<StaffActivityType, string> = {
         ticket_reply: 'Replied to ticket', chat_reply: 'Team chat message', order_confirm: 'Confirmed commande',
         return_process: 'Processed return', product_moderate: 'Moderated product', pick_create: 'Created pick',
-        pick_scan: 'Scanned pick item', refill_create: 'Created refill request', refill_update: 'Updated refill request', followup: 'Supplier follow-up', command_create: 'Created commande', command_forward: 'Sent commande to chef',
+        pick_scan: 'Scanned pick item', refill_create: 'Created refill request', refill_update: 'Updated refill request', followup: 'Supplier follow-up', command_create: 'Created commande', command_forward: 'Sent commande to chef', payment_reconcile: 'Reconciled payment', order_price_override: 'Changed order total',
       };
       for (const s of staffSeeds) {
         for (const [type, count] of s.types) {
@@ -939,22 +939,16 @@ export function createMemoryStore(): Store {
         oi.push({ id: ++oiid, order_id: 0, product_id: p.id, product_name: p.name, product_image: p.image_url, quantity: it.quantity, price, cost: p.cost_price, fournisseur_id: p.fournisseur_id, fournisseur_name: sup?.name ?? 'Unknown', house_qty: takeFromHouse, supplier_qty: fromSupplier });
       }
 
-      // Whole-commande manual price: override per-line prices with a uniform unit price so the total equals the entered amount
       if (input.manual_price != null && input.manual_price > 0) {
-        const totalQty = oi.reduce((s, it) => s + it.quantity, 0) || 1;
+        const totalQty = oi.reduce((sum, item) => sum + item.quantity, 0) || 1;
         const target = round2(input.manual_price);
         const unit = round2(target / totalQty);
         let assignedSum = 0;
         for (let i = 0; i < oi.length; i++) {
-          const isLast = i === oi.length - 1;
-          if (isLast) {
-            const remaining = round2(target - assignedSum);
-            const remQty = oi[i].quantity;
-            oi[i] = { ...oi[i], price: round2(remaining / remQty) };
-          } else {
-            oi[i] = { ...oi[i], price: unit };
-            assignedSum += round2(unit * oi[i].quantity);
-          }
+          const item = oi[i];
+          const linePrice = i === oi.length - 1 ? round2((target - assignedSum) / item.quantity) : unit;
+          if (i !== oi.length - 1) assignedSum += round2(linePrice * item.quantity);
+          oi[i] = { ...item, price: linePrice };
         }
       }
 
@@ -981,7 +975,7 @@ export function createMemoryStore(): Store {
           nombre_echange: input.nombre_echange ?? 'non',
           status: 'draft',
           order_type: input.offer_type === 'fulfillment' ? 'fulfillment' : input.offer_type === 'wholesale' ? 'wholesale' : 'dropshipping',
-          payment_status: input.payment_method === 'cod' ? 'unpaid' : 'paid',
+          payment_status: 'unpaid',
           payment_method: input.payment_method,
           total: 0,
           total_cost: 0,

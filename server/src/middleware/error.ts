@@ -41,5 +41,6 @@ export function errorHandler(err: Error & { status?: number }, _req: Request, re
     return;
   }
   console.error('[error]', err);
-  res.status(err.status ?? 500).json({ success: false, error: err.message ?? 'Internal server error' });
+  const status = err.status && err.status >= 400 && err.status < 500 ? err.status : 500;
+  res.status(status).json({ success: false, error: status === 500 ? 'Internal server error' : 'Request could not be processed' });
 }

@@ -23,17 +23,44 @@ import { flouciRoutes } from './routes/flouci';
 import { confirmateurRoutes } from './routes/confirmateur';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { uploadsDir } from './lib/paths';
+import helmet from 'helmet';
+import { verifyToken } from './middleware/auth';
+import { env } from './config/env';
 
 export function createApp(store: Store): Express {
   const app = express();
 
-  app.use(cors());
+  const allowedOrigins = env.WEB_BASE_URL.split(',').map((origin) => origin.trim()).filter(Boolean);
+  app.use(cors({ origin: (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin)) }));
+  app.use(helmet());
+  app.use((req, res, next) => {
+    const header = req.headers.authorization;
+    if (!header) { next(); return; }
+    if (!header.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Invalid or expired token' }); return; }
+    try {
+      const claims = verifyToken(header.slice(7));
+      void store.findUserById(claims.id).then((user) => {
+        if (!user) { res.status(401).json({ success: false, error: 'Invalid or expired token' }); return; }
+        if (user.role !== claims.role) { res.status(401).json({ success: false, error: 'Session is no longer valid' }); return; }
+        req.user = { id: user.id, name: user.name, email: user.email, role: user.role };
+        next();
+      }).catch(next);
+    } catch {
+      res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    }
+  });
   app.use(express.json({ limit: '2mb' }));
   app.get('/uploads/:name', async (req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Content-Disposition', 'attachment');
     try {
       const file = await store.getUploadFile(req.params.name);
       if (file) {
         res.setHeader('Content-Type', file.contentType);
+        if (['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm'].includes(file.contentType)) {
+          res.setHeader('Content-Disposition', 'inline');
+        }
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         res.end(file.data);
         return;

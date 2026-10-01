@@ -20,6 +20,19 @@ export const env = {
   WEB_BASE_URL: str(process.env.WEB_BASE_URL, 'http://localhost:5173'),
 };
 
+if (process.env.NODE_ENV === 'production') {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret === 'dev_secret_change_me' || secret.length < 32) {
+    throw new Error('Production requires JWT_SECRET with at least 32 characters.');
+  }
+  if ((process.env.DB_DRIVER ?? '').toLowerCase() !== 'mysql') {
+    throw new Error('Production requires DB_DRIVER=mysql.');
+  }
+  if (!process.env.DB_PASSWORD || process.env.DB_PASSWORD === 'root') {
+    throw new Error('Production requires a non-default DB_PASSWORD.');
+  }
+}
+
 function tidbCa(): string | undefined {
   try {
     return readFileSync(resolve(process.cwd(), 'certs', 'isrg-root-x1.pem'), 'utf8');

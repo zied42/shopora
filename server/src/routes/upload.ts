@@ -5,13 +5,15 @@ import multer from 'multer';
 import { ah, requireAuth } from '../middleware/auth';
 import { uploadsDir } from '../lib/paths';
 import type { Store } from '../store/types';
+import { env } from '../config/env';
 
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
+    const extensions: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp', 'application/pdf': '.pdf', 'video/mp4': '.mp4', 'video/webm': '.webm' };
+    const ext = extensions[file.mimetype] ?? '.bin';
     const prefix = file.mimetype.startsWith('video/') ? 'vid' : file.mimetype === 'application/pdf' ? 'doc' : 'img';
     cb(null, `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
   },
@@ -21,16 +23,16 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') cb(null, true);
+    if (['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'].includes(file.mimetype)) cb(null, true);
     else cb(new Error('Only image and PDF files are allowed') as never);
   },
 });
 
 const uploadVideo = multer({
   storage,
-  limits: { fileSize: 200 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) cb(null, true);
+    if (['video/mp4', 'video/webm'].includes(file.mimetype)) cb(null, true);
     else cb(new Error('Only video files are allowed') as never);
   },
 });
@@ -49,6 +51,17 @@ function contentTypeFor(name: string): string {
   if (ext === '.m4v') return 'video/x-m4v';
   if (ext === '.ogg') return 'video/ogg';
   return 'application/octet-stream';
+}
+
+function matchesFileSignature(mime: string, data: Buffer): boolean {
+  if (mime === 'image/jpeg') return data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+  if (mime === 'image/png') return data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mime === 'image/gif') return data.subarray(0, 4).toString() === 'GIF8';
+  if (mime === 'image/webp') return data.subarray(0, 4).toString() === 'RIFF' && data.subarray(8, 12).toString() === 'WEBP';
+  if (mime === 'application/pdf') return data.subarray(0, 5).toString() === '%PDF-';
+  if (mime === 'video/mp4') return data.subarray(4, 8).toString() === 'ftyp';
+  if (mime === 'video/webm') return data.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+  return false;
 }
 
 /** One-time migration: copy every file still present on local disk into the
@@ -83,10 +96,15 @@ export function uploadRoutes(store: Store): Router {
       res.status(400).json({ success: false, error: 'No file uploaded' });
       return;
     }
-    const url = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    const uploadData = fs.readFileSync(req.file.path);
+    if (!matchesFileSignature(req.file.mimetype, uploadData)) {
+      fs.unlinkSync(req.file.path);
+      res.status(400).json({ success: false, error: 'File content does not match an allowed file type' });
+      return;
+    }
+    const url = `${env.API_BASE_URL}/uploads/${req.file.filename}`;
     try {
-      const data = fs.readFileSync(req.file.path);
-      await store.saveUploadFile(req.file.filename, data, req.file.mimetype || 'application/octet-stream');
+      await store.saveUploadFile(req.file.filename, uploadData, req.file.mimetype || 'application/octet-stream');
     } catch {
       // Persistence store unavailable: the file stays only on local disk
       // (and will be lost on the next server restart), the URL still works meanwhile.
@@ -99,10 +117,15 @@ export function uploadRoutes(store: Store): Router {
       res.status(400).json({ success: false, error: 'No video uploaded' });
       return;
     }
-    const url = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    const uploadData = fs.readFileSync(req.file.path);
+    if (!matchesFileSignature(req.file.mimetype, uploadData)) {
+      fs.unlinkSync(req.file.path);
+      res.status(400).json({ success: false, error: 'File content does not match an allowed file type' });
+      return;
+    }
+    const url = `${env.API_BASE_URL}/uploads/${req.file.filename}`;
     try {
-      const data = fs.readFileSync(req.file.path);
-      await store.saveUploadFile(req.file.filename, data, req.file.mimetype || 'video/mp4');
+      await store.saveUploadFile(req.file.filename, uploadData, req.file.mimetype || 'video/mp4');
     } catch {
       // Persistence store unavailable: the file stays only on local disk.
     }

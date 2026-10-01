@@ -9,7 +9,7 @@ import { Role } from '../store/types';
 const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().min(12, 'Password must be at least 12 characters'),
   role: z.enum(['customer', 'seller']).optional(),
   cin: z.string().max(50).optional().nullable(),
   shop_name: z.string().trim().max(160).optional().nullable(),
@@ -44,14 +44,30 @@ const publicUser = (u: { id: number; name: string; email: string; role: Role; ph
 export function authRoutes(store: Store): Router {
   const router = Router();
 
-  router.post('/register', validateBody(registerSchema), ah(async (req, res) => {
+  const attempts = new Map<string, { count: number; resetAt: number }>();
+  const throttle = (limit: number, windowMs: number, keyFor: (req: import('express').Request) => string) =>
+    (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
+      const now = Date.now();
+      for (const [key, entry] of attempts) if (entry.resetAt <= now) attempts.delete(key);
+      const key = keyFor(req);
+      const entry = attempts.get(key);
+      if (entry && entry.count >= limit) {
+        res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
+        res.status(429).json({ success: false, error: 'Too many authentication attempts. Try again later.' });
+        return;
+      }
+      attempts.set(key, entry ? { ...entry, count: entry.count + 1 } : { count: 1, resetAt: now + windowMs });
+      next();
+    };
+
+  router.post('/register', throttle(5, 15 * 60_000, (req) => req.ip ?? req.socket.remoteAddress ?? 'unknown'), validateBody(registerSchema), ah(async (req, res) => {
     const { name, email, password, role } = req.body;
     const existing = await store.findUserByEmail(email);
     if (existing) {
       res.status(409).json({ success: false, error: 'An account with this email already exists' });
       return;
     }
-    const user = await store.createUser({ name, email, password_hash: bcrypt.hashSync(password, 10), role: role ?? 'customer', cin: req.body.cin ?? null });
+    const user = await store.createUser({ name, email, password_hash: await bcrypt.hash(password, 12), role: role ?? 'customer', cin: req.body.cin ?? null });
     if ((role ?? 'customer') === 'customer') {
       try {
         const org = await store.createSellerSignup({
@@ -70,10 +86,10 @@ export function authRoutes(store: Store): Router {
     res.status(201).json({ success: true, data: { token, user: publicUser(user) } });
   }));
 
-  router.post('/login', validateBody(loginSchema), ah(async (req, res) => {
+  router.post('/login', throttle(10, 15 * 60_000, (req) => `${req.ip ?? req.socket.remoteAddress ?? 'unknown'}:${String(req.body?.email ?? '').toLowerCase()}`), validateBody(loginSchema), ah(async (req, res) => {
     const { email, password, portal } = req.body;
     const user = await store.findUserByEmail(email);
-    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       res.status(401).json({ success: false, error: 'Invalid email or password' });
       return;
     }

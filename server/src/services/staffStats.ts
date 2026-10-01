@@ -51,6 +51,8 @@ export const STAFF_TYPE_LABELS: Record<StaffActivityType, string> = {
   followup: 'Supplier follow-ups',
   command_create: 'Commandes made',
   command_forward: 'Commandes sent to chef',
+  payment_reconcile: 'Payments reconciled',
+  order_price_override: 'Order totals overridden',
 };
 
 /** The duties that matter for each role — where a staffer "does their job" or not. */
