@@ -1,0 +1,26 @@
+{
+  "name": "shopora",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dropshipping platform MVP (.42) — Phase 1",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev --workspace server",
+    "dev:client": "npm run dev --workspace client",
+    "build": "npm run build --workspaces",
+    "start": "npm run start --workspace server",
+    "typecheck": "npm run typecheck --workspaces"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "wait-on": "^9.1.0"
+  },
+  "dependencies": {
+    "framer-motion": "^13.2.0",
+    "lucide-react": "^1.40.0"
+  }
+}

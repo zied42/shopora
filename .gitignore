@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+server/uploads/*
+!server/uploads/.gitkeep
+coverage/
+*.tsbuildinfo
+.vite/
+
+# Dev scratch
+aa.html
+*.cjs
+postman/
+.postman/
+sound effects/
+**/dist/
+*.tsbuildinfo
