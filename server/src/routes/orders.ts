@@ -30,7 +30,7 @@ const createOrderSchema = z.object({
 
 const statusSchema = z.object({ status: z.enum(['draft', 'pending', 'confirmed', 'shipped', 'delivered', 'cancelled']) });
 
-const paymentSchema = z.object({ status: z.enum(['paid', 'unpaid']).optional(), method: z.enum(['stripe', 'paypal', 'cod']).optional() });
+const paymentSchema = z.object({ status: z.enum(['paid', 'unpaid']), method: z.enum(['stripe', 'paypal', 'cod']).optional() });
 
 const trackingSchema = z.object({
   carrier: z.string().min(1),
@@ -58,6 +58,11 @@ export function orderRoutes(store: Store): Router {
 
   router.post('/', requireRole('customer', 'admin', 'seller'), validateBody(createOrderSchema), ah(async (req, res) => {
     const { items, payment_method } = req.body;
+
+    if (req.user.role === 'customer' && req.body.manual_price !== undefined) {
+      res.status(400).json({ success: false, error: 'Order totals are calculated from current product prices' });
+      return;
+    }
 
     let dropshipperId = req.user.id;
     let dropshipperName = req.user.name;
@@ -117,8 +122,8 @@ export function orderRoutes(store: Store): Router {
       shipping_address: req.body.shipping_address,
       payment_method,
       items,
-      offer_type: req.body.offer_type,
       manual_price: req.body.manual_price,
+      offer_type: req.body.offer_type,
       locality_id: req.body.locality_id ?? null,
       commentaire: req.body.commentaire ?? null,
       est_fragile: req.body.est_fragile ?? 'non',
@@ -131,6 +136,14 @@ export function orderRoutes(store: Store): Router {
         activity_type: 'command_create',
         label: `Created commande ${order_number} for ${dropshipperName}`,
         ref_id: result.order.id,
+      });
+    }
+    if (req.body.manual_price !== undefined) {
+      logStaffActivity(store, req.user, {
+        activity_type: 'order_price_override',
+        label: `Applied a manual total to order ${order_number}`,
+        ref_id: result.order.id,
+        quantity: 1,
       });
     }
     res.status(201).json({ success: true, data: forRole(req.user.role, result.order), requestedFromSupplier: result.requestedFromSupplier });
@@ -203,7 +216,15 @@ export function orderRoutes(store: Store): Router {
 
   router.patch('/:id(\\d+)/delivery-company', requireRole('seller', 'admin'), ah(async (req, res) => {
     const id = Number(req.params.id);
-    const { delivery_company } = req.body as { delivery_company: string | null };
+    const schema = z.object({ delivery_company: z.string().trim().min(1).max(80).nullable() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ success: false, error: 'Invalid delivery company' }); return; }
+    const order = await store.getOrder(id);
+    if (!order) { res.status(404).json({ success: false, error: 'Order not found' }); return; }
+    if (req.user.role === 'seller' && !isOwnSupplier(order, req.user.id)) {
+      res.status(403).json({ success: false, error: 'You can only update your own orders' }); return;
+    }
+    const { delivery_company } = parsed.data;
     await store.setDeliveryCompany(id, delivery_company ?? null);
     const updated = await store.getOrder(id);
     res.json({ success: true, data: forRole(req.user.role, updated!) });
@@ -253,23 +274,23 @@ export function orderRoutes(store: Store): Router {
       res.status(403).json({ success: false, error: 'You can only pay for your own orders' });
       return;
     }
-    await store.updatePayment(id, 'paid', req.body.method ?? order.payment_method ?? 'stripe');
-    const updated = await store.getOrder(id);
-    res.json({ success: true, data: forRole(req.user.role, updated!) });
+    res.status(409).json({ success: false, error: 'Online payment is not configured. Order payment status cannot be changed through this endpoint.' });
   }));
 
-  router.patch('/:id(\\d+)/payment', requireRole('admin', 'seller'), validateBody(paymentSchema), ah(async (req, res) => {
+  router.patch('/:id(\\d+)/payment', requireRole('admin'), validateBody(paymentSchema), ah(async (req, res) => {
     const id = Number(req.params.id);
     const order = await store.getOrder(id);
     if (!order) {
       res.status(404).json({ success: false, error: 'Order not found' });
       return;
     }
-    if (req.user.role === 'seller' && !isOwnSupplier(order, req.user.id)) {
-      res.status(403).json({ success: false, error: 'You can only manage your own orders' });
-      return;
-    }
     await store.updatePayment(id, req.body.status ?? 'paid', req.body.method ?? null);
+    logStaffActivity(store, req.user, {
+      activity_type: 'payment_reconcile',
+      label: `Reconciled payment for order ${order.order_number}: ${req.body.status ?? 'paid'}`,
+      ref_id: id,
+      quantity: 1,
+    });
     const updated = await store.getOrder(id);
     res.json({ success: true, data: forRole(req.user.role, updated!) });
   }));

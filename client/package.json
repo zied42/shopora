@@ -21,18 +21,17 @@
     "react": "^18.3.1",
     "react-barcode": "^1.6.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.6",
-    "recharts": "^2.15.4",
-    "xlsx": "^0.18.5"
+    "react-router-dom": "^7.18.4",
+    "recharts": "^2.15.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22.20.1",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^5.2.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
-    "vite": "^5.4.21"
+    "vite": "^7.3.6"
   }
 }

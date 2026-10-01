@@ -1411,7 +1411,8 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
     const nRows = await all<Row<{ n: number }>>(pool, "SELECT COUNT(*) AS n FROM users");
     const wasEmpty = Number(nRows[0]?.n ?? 0) === 0;
 
-    const hash = bcrypt.hashSync('password', 10);
+    const seedPassword = process.env.NODE_ENV === 'production' ? randomBytes(48).toString('base64url') : 'password';
+    const hash = bcrypt.hashSync(seedPassword, 12);
     const insUser = async (name: string, email: string, role: string, cin: string | null = null) => {
       const existing = await all<Row<{ id: number }>>(pool, 'SELECT id FROM users WHERE email = ?', [email]);
       if (existing.length > 0) {
@@ -1427,6 +1428,11 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
     const dropshipper_id = await insUser('Sarah Customer', 'dropshipper@demo.com', 'customer', '04678123');
     const a_id = await insUser('Karim Seller', 'fournisseur@demo.com', 'seller');
     const b_id = await insUser('Lina Seller', 'lina@demo.com', 'seller');
+    if (process.env.NODE_ENV === 'production') {
+      // Demo identities may be needed as fixture owners by the sample catalog, but must never retain public demo credentials.
+      const disabledDemoHash = await bcrypt.hash(randomBytes(48).toString('base64url'), 12);
+      await pool.execute("UPDATE users SET password_hash = ? WHERE email IN ('admin@demo.com','chef@demo.com','support@demo.com','dropshipper@demo.com','fournisseur@demo.com','lina@demo.com')", [disabledDemoHash]);
+    }
 
     const invRows = await all<Row<{ n: number }>>(pool, 'SELECT COUNT(*) AS n FROM inventories');
     if (Number(invRows[0]?.n ?? 0) === 0) {
@@ -2536,7 +2542,7 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
           input.order_number, input.dropshipper_id, firstFournisseurId, input.customer_name ?? null, input.customer_phone ?? null,
           input.telephone2 ?? null,
           input.governorate ?? null, input.city ?? null, input.shipping_address ?? null,
-          'draft', input.offer_type === 'fulfillment' ? 'fulfillment' : input.offer_type === 'wholesale' ? 'wholesale' : 'dropshipping', input.payment_method === 'cod' ? 'unpaid' : 'paid', input.payment_method,
+          'draft', input.offer_type === 'fulfillment' ? 'fulfillment' : input.offer_type === 'wholesale' ? 'wholesale' : 'dropshipping', 'unpaid', input.payment_method,
           input.locality_id ?? null, input.commentaire ?? null, input.est_fragile ?? 'non', input.ouvrir_colis ?? 'non', input.nombre_article ?? null, input.nombre_echange ?? 'non',
         ]);
         const orderId = (orderRes as mysql.ResultSetHeader).insertId;
@@ -2566,22 +2572,18 @@ for (const it of input.items) {
           resolvedItems.push({ product_id: it.product_id, quantity: it.quantity, claim, price, cost: Number(prows[0].cost_price) });
         }
 
-        // Whole-commande manual price: override per-line prices with a uniform unit price so the total equals the entered amount
         if (input.manual_price != null && input.manual_price > 0) {
-          const totalQty = resolvedItems.reduce((s, i) => s + i.quantity, 0) || 1;
+          const totalQty = resolvedItems.reduce((sum, item) => sum + item.quantity, 0) || 1;
           const target = round2(input.manual_price);
           const unit = round2(target / totalQty);
           let assignedSum = 0;
           for (let i = 0; i < resolvedItems.length; i++) {
-            const isLast = i === resolvedItems.length - 1;
-            if (isLast) {
-              const remaining = round2(target - assignedSum);
-              const remQty = resolvedItems[i].quantity;
-              resolvedItems[i] = { ...resolvedItems[i], price: round2(remaining / remQty) };
-            } else {
-              resolvedItems[i] = { ...resolvedItems[i], price: unit };
-              assignedSum += round2(unit * resolvedItems[i].quantity);
-            }
+            const item = resolvedItems[i];
+            const linePrice = i === resolvedItems.length - 1
+              ? round2((target - assignedSum) / item.quantity)
+              : unit;
+            if (i !== resolvedItems.length - 1) assignedSum += round2(linePrice * item.quantity);
+            resolvedItems[i] = { ...item, price: linePrice };
           }
         }
 

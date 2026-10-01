@@ -1091,7 +1091,7 @@ export interface CreateOrderInput {
   items: OrderItemInput[];
   /** Offer type chosen at creation time (defaults to dropshipping). */
   offer_type?: 'dropshipping' | 'wholesale' | 'fulfillment';
-  /** Whole-commande "Price (including VAT)" typed by the supplier. When set, it replaces the per-product prices and becomes the commande total. */
+  /** Privileged operator override for seller-owned fulfillment orders. */
   manual_price?: number;
   locality_id?: number | null;
   telephone2?: string | null;
@@ -1172,7 +1172,9 @@ export type StaffActivityType =
   | 'refill_update'
   | 'followup'
   | 'command_create'
-  | 'command_forward';
+  | 'command_forward'
+  | 'payment_reconcile'
+  | 'order_price_override';
 
 export interface StaffActivityInput {
   user_id: number;

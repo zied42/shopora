@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiErrorMessage, apiGet, dateFmt, money, Order, ReturnRequest, listReturnRequests } from '../../lib/api';
-import { exportOrdersToExcel } from '../../lib/export';
+import { exportOrdersToCsv } from '../../lib/export';
 import { AppFooter, Badge, orderStatusTone, Spinner, TablePagination } from '../../components/ui';
 import { OrderDetailModal } from '../../components/OrderCenter';
 import { warehouseNames } from '../../lib/warehouses';
@@ -264,7 +264,7 @@ export default function FourOrders() {
             <div className="ml-auto flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => (orders.length ? exportOrdersToExcel(orders, 'orders.xlsx') : alert('No orders to export'))}
+                onClick={() => (orders.length ? exportOrdersToCsv(orders, 'orders.csv') : alert('No orders to export'))}
                 className="h-8 w-8 rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-50"
               >
                 ⬇️

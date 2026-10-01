@@ -36,12 +36,16 @@ export function returnRoutes(store: Store): Router {
       res.status(403).json({ success: false, error: 'You can only request a return for your own commandes' });
       return;
     }
+    if (req.user.role === 'seller' && (order.items.length === 0 || !order.items.every((item) => item.fournisseur_id === req.user.id))) {
+      res.status(403).json({ success: false, error: 'You can only request returns for orders containing your products' });
+      return;
+    }
     if (req.body.type === 'echange' && order.status !== 'delivered') {
       res.status(400).json({ success: false, error: 'An échange can only be requested for a delivered commande' });
       return;
     }
     await store.createReturnRequest({
-      dropshipper_id: req.user.id,
+      dropshipper_id: order.dropshipper_id,
       order_id: order.id,
       type: req.body.type,
       reason: req.body.reason,

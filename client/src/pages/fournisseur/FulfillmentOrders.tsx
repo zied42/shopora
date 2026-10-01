@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, dateFmt, money, Order, Product } from '../../lib/api';
-import { exportOrdersToExcel } from '../../lib/export';
+import { exportOrdersToCsv } from '../../lib/export';
 import { Badge, orderStatusTone, PageHeader, Spinner, TablePagination } from '../../components/ui';
 import { OrderTrackingView } from '../../components/OrderCenter';
 import CreateTab from './FulfillmentNewOrder';
@@ -257,7 +257,7 @@ function OrderList({ orders, loading, fulfillmentIds, onRefresh }: { orders: Ord
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
-            onClick={() => (searched.length ? exportOrdersToExcel(searched, 'fulfillment-orders.xlsx') : alert('No orders to export'))}
+            onClick={() => (searched.length ? exportOrdersToCsv(searched, 'fulfillment-orders.csv') : alert('No orders to export'))}
             className="h-8 w-8 rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-50"
             title="Export"
           >

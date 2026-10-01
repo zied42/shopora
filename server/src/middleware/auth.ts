@@ -40,8 +40,11 @@ function normalizeRole(role: unknown): Role | null {
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // createApp validates bearer sessions against the current persisted account first.
+  if (req.user) { next(); return; }
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
+    console.warn('[security] authentication_failed', { method: req.method, path: req.path });
     res.status(401).json({ success: false, error: 'Authentication required' });
     return;
   }
@@ -50,6 +53,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     req.user = { id: payload.id, role: payload.role, name: '', email: '' };
     next();
   } catch {
+    console.warn('[security] authentication_failed', { method: req.method, path: req.path });
     res.status(401).json({ success: false, error: 'Invalid or expired token' });
   }
 }
@@ -57,6 +61,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 export function requireRole(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user || !roles.includes(req.user.role)) {
+      console.warn('[security] authorization_denied', { method: req.method, path: req.path, userId: req.user?.id ?? null });
       res.status(403).json({ success: false, error: 'You do not have permission to perform this action' });
       return;
     }

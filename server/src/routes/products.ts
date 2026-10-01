@@ -176,6 +176,15 @@ export function productRoutes(store: Store): Router {
       res.status(404).json({ success: false, error: 'Product not found' });
       return;
     }
+    if (req.user.role === 'customer' && (!p.is_active || p.moderation_status !== 'approved' || (p.offers ?? [p.category]).includes('fulfillment'))) {
+      res.status(404).json({ success: false, error: 'Product not found' });
+      return;
+    }
+    if (req.user.role === 'customer') {
+      const { cost_price: _cost, house_stock: _house, committed_stock: _committed, moderation_note: _note, ...publicProduct } = p;
+      res.json({ success: true, data: publicProduct });
+      return;
+    }
     res.json({ success: true, data: p });
   }));
 
