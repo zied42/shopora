@@ -37,6 +37,8 @@ npm run dev -w client
 - Admin: `/admin`, `/admin/products`, `/admin/orders`, `/admin/inventory`, `/admin/users`, `/admin/support`
 - API health: `/api/health`
 
+See [docs/api.md](docs/api.md) for the API endpoint reference, request schemas, role access, examples, and payment limitations.
+
 ## Security and CI
 
 The API validates request bodies, checks roles and resource ownership, hashes passwords, uses parameterized MySQL queries, and applies Helmet security headers. GitHub Actions runs secret scanning, TypeScript checks, production builds, and dependency auditing. Treat findings as work to investigate; a passing pipeline does not prove an application is secure.
