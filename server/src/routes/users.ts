@@ -8,14 +8,14 @@ import { Store } from '../store';
 const createUserSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  role: z.enum(['admin', 'customer', 'seller']),
+  password: z.string().min(12, 'Password must be at least 12 characters'),
+  role: z.enum(['admin', 'customer']),
   cin: z.string().max(50).optional().nullable(),
 });
 
 const patchUserSchema = z.object({
   name: z.string().min(2).optional(),
-  role: z.enum(['admin', 'customer', 'seller']).optional(),
+  role: z.enum(['admin', 'customer']).optional(),
   photo: z.string().nullable().optional(),
   cin: z.string().max(50).optional().nullable(),
 });

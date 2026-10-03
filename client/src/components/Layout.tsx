@@ -33,338 +33,30 @@ interface NavSection {
   items: NavItem[];
 }
 
-const FULFILLMENT_SECTION: NavSection = {
-  label: 'Fulfillment',
-  items: [
-    {
-      to: '/fournisseur/fulfillment/orders',
-      label: 'Orders',
-      icon: '',
-      children: [
-        { to: '/fournisseur/fulfillment/orders', label: 'All orders', end: true },
-        { to: '/fournisseur/fulfillment/orders/new', label: 'New order' },
-        { to: '/fournisseur/fulfillment/orders/returns', label: 'Returns' },
-        { to: '/fournisseur/fulfillment/orders/exchanges', label: 'Exchanges' },
-      ],
-    },
-    { to: '/fournisseur/fulfillment/products/add', label: 'Add product', icon: '' },
-  ],
-};
-
 const NAV: Record<string, NavSection[]> = {
   admin: [
-    {
-      label: 'Overview',
-      items: [
-        { to: '/admin', label: 'Dashboard', icon: '' },
-        { to: '/admin/users', label: 'Users', icon: '' },
-        { to: '/admin/staff', label: 'Staff team', icon: '' },
-      ],
-    },
-    {
-      label: 'Management',
-      items: [
-        { to: '/admin/products', label: 'Products', icon: '' },
-        { to: '/admin/orders', label: 'Orders', icon: '' },
-        { to: '/admin/inventory', label: 'Inventory', icon: '' },
-      ],
-    },
-    {
-      label: 'Support',
-      items: [
-        { to: '/admin/support', label: 'Tickets', icon: '' },
-        { to: '/admin/chat', label: 'Team chat', icon: '' },
-      ],
-    },
-    {
-      label: 'Developer',
-      items: [
-        { to: '/admin/integration', label: 'Integration', icon: '' },
-      ],
-    },
-  ],
-  chef: [
-    {
-      label: 'Operations',
-      items: [
-        { to: '/chef/tickets', label: 'Tickets', icon: '' },
-        { to: '/chef/shipments', label: 'Shipments', icon: '' },
-        { to: '/chef/returns', label: 'Returns', icon: '' },
-        { to: '/chef/pickup-requests', label: 'Pickup requests', icon: '' },
-        { to: '/chef/manifests', label: 'Manifests', icon: '' },
-      ],
-    },
-    {
-      label: 'Finance',
-      items: [
-        {
-          to: '/chef/transactions',
-          label: 'Transactions',
-          icon: '',
-          children: [{ to: '/chef/transactions', label: 'List', end: true }],
-        },
-        {
-          to: '/chef/reconciliation-reviews',
-          label: 'Cash Management',
-          icon: '',
-          children: [{ to: '/chef/reconciliation-reviews', label: 'Reconciliation Reviews', end: true }],
-        },
-      ],
-    },
-    {
-      label: 'Sellers',
-      items: [
-        { to: '/chef/seller-organizations', label: 'Sellers', icon: '' },
-        { to: '/chef/subscriptions', label: 'Product Subscriptions', icon: '' },
-        { to: '/chef/products-collections', label: 'Collections', icon: '' },
-      ],
-    },
-    {
-      label: 'Suppliers',
-      items: [
-        { to: '/chef/supplier-organizations', label: 'Suppliers', icon: '' },
-        { to: '/chef/products', label: 'Products', icon: '' },
-        { to: '/chef/chat-threads', label: 'Chat Threads', icon: '' },
-        { to: '/chef/warehouses', label: 'Warehouses', icon: '' },
-        { to: '/chef/bins-inventory', label: 'Bins Inventory', icon: '' },
-      ],
-    },
-    {
-      label: 'Leads',
-      items: [
-        { to: '/chef/leads/list', label: 'List', icon: '' },
-        { to: '/chef/leads/calling-session', label: 'Calling Session', icon: '' },
-        { to: '/chef/leads/create', label: 'Create', icon: '' },
-        { to: '/chef/leads/import', label: 'Import', icon: '' },
-        { to: '/chef/leads/imports', label: 'Import History', icon: '' },
-        { to: '/chef/leads/simulator', label: 'Ops Audit', icon: '' },
-        { to: '/chef/leads/ad-performance', label: 'Ad Performance', icon: '' },
-      ],
-    },
-    {
-      label: 'Settings',
-      items: [{ to: '/chef/find-products', label: 'Search Products', icon: '' }],
-    },
-    {
-      label: 'Feedback',
-      items: [{ to: '/chef/feedback/questionnaires', label: 'Questionnaires', icon: '' }],
-    },
-    {
-      label: 'Wiki',
-      items: [
-        { to: '/chef/wiki', label: 'Tutorial', icon: '', badge: '6', badgeTone: 'red' },
-        { to: '/chef/wiki/inbox', label: 'My Inbox', icon: '', badge: '6', badgeTone: 'red' },
-      ],
-    },
-    {
-      label: 'Dashboards',
-      items: [
-        { to: '/chef', label: 'Overview', icon: '' },
-        { to: '/chef/ops-dashboard', label: 'Ops Dashboard', icon: '' },
-        { to: '/chef/performance-dashboard', label: 'Performance Dashboard', icon: '' },
-        { to: '/chef/seller-incubation-dashboard', label: 'Seller Incubation', icon: '' },
-        { to: '/chef/supplier-incubation-dashboard', label: 'Supplier Incubation', icon: '' },
-        { to: '/chef/products-dashboard', label: 'Products Dashboard', icon: '' },
-        { to: '/chef/staff', label: 'Staff Team', icon: '' },
-      ],
-    },
-  ],
-  support: [
-    {
-      label: 'Support',
-      items: [
-        { to: '/support/inbox', label: 'Inbox', icon: '' },
-        { to: '/support', label: 'Tickets', icon: '' },
-        { to: '/support/find-products', label: 'Search Products', icon: '' },
-        { to: '/support/seller-organizations', label: 'Sellers', icon: '' },
-        { to: '/support/supplier-organizations', label: 'Suppliers', icon: '' },
-        { to: '/support/services', label: 'Services', icon: '' },
-        { to: '/support/commandes', label: 'Commandes', icon: '' },
-        { to: '/support/chat', label: 'Team chat', icon: '' },
-      ],
-    },
-  ],
-  stocking: [
-    {
-      label: 'Overview',
-      items: [
-        { to: '/stocking', label: 'Dashboard', icon: '' },
-        { to: '/stocking/inventory', label: 'Inventory', icon: '' },
-      ],
-    },
-    {
-      label: 'Tickets',
-      items: [{ to: '/stocking/tickets', label: 'Tickets', icon: '' }],
-    },
-    {
-      label: 'Operations',
-      items: [
-        { to: '/stocking/picks', label: 'Picks', icon: '' },
-        { to: '/stocking/orders', label: 'Orders', icon: '' },
-        { to: '/stocking/reservations', label: 'Reservations', icon: '' },
-        { to: '/stocking/stock-returns', label: 'Stock Returns', icon: '' },
-        { to: '/stocking/wholesale-orders', label: 'Wholesale orders', icon: '' },
-        { to: '/stocking/stock-shipments', label: 'Stock Shipments', icon: '' },
-      ],
-    },
-    {
-      label: 'Stock Entities',
-      items: [
-        { to: '/stocking/stock-refill-requests', label: 'Stock refill requests', icon: '' },
-        { to: '/stocking/storage-requests', label: 'Storage Requests', icon: '' },
-        { to: '/stocking/delivery-returns', label: 'Delivery Returns', icon: '' },
-        { to: '/stocking/canceled-shipments', label: 'Canceled shipments', icon: '' },
-      ],
-    },
-    {
-      label: 'Warehouses & Logistics',
-      items: [
-        { to: '/stocking/suppliers-inventory', label: 'Suppliers Inventory', icon: '' },
-      ],
-    },
+    { label: 'Store', items: [
+      { to: '/admin', label: 'Dashboard', icon: '' },
+      { to: '/admin/products', label: 'Products', icon: '' },
+      { to: '/admin/orders', label: 'Orders', icon: '' },
+      { to: '/admin/inventory', label: 'Inventory', icon: '' },
+      { to: '/admin/users', label: 'Users', icon: '' },
+      { to: '/admin/support', label: 'Support', icon: '' },
+    ] },
   ],
   customer: [
-    {
-      label: 'Products',
-      items: [
-        { to: '/dropshipper/store', label: 'Marketplace', icon: '' },
-        { to: '/dropshipper/trending', label: 'Trending', icon: '', badge: 'Hot', badgeTone: 'red' },
-        {
-          to: '/dropshipper/products',
-          label: 'My products',
-          icon: '⭐',
-          children: [{ to: '/dropshipper/products', label: 'Products list', end: true }],
-        },
-      ],
-    },
-    {
-      label: 'Orders',
-      items: [
-        {
-          to: '/dropshipper/commandes',
-          label: 'Orders',
-          icon: '',
-          children: [
-            { to: '/dropshipper/commandes', label: 'All orders', end: true },
-            { to: '/dropshipper/commandes/create', label: 'New order' },
-            { to: '/dropshipper/commandes/retours', label: 'Returns' },
-            { to: '/dropshipper/commandes/echange', label: 'Exchanges' },
-          ],
-        },
-      ],
-    },
-    {
-      label: 'Support',
-      items: [
-        { to: '/dropshipper/support', label: 'Tickets', icon: '' },
-        { to: '/dropshipper/chat', label: 'Chat', icon: '' },
-      ],
-    },
-    {
-      label: 'Finance',
-      items: [
-        { to: '/dropshipper/payments', label: 'Payments', icon: '💳' },
-      ],
-    },
-    {
-      label: 'Analytics',
-      items: [
-        {
-          to: '/dropshipper/dashboard',
-          label: 'Dashboard',
-          icon: '',
-          children: [
-            { to: '/dropshipper', label: 'Overview', end: true },
-            { to: '/dropshipper/dashboard/delivery', label: 'Delivery' },
-            { to: '/dropshipper/dashboard/confirmation', label: 'Confirmation' },
-            { to: '/dropshipper/dashboard/internal-confirmation', label: 'Internal Confirmation' },
-            { to: '/dropshipper/dashboard/products', label: 'Products' },
-          ],
-        },
-      ],
-    },
-    {
-      label: 'Integrations',
-      items: [
-        { to: '/dropshipper/integrations', label: 'Apps', icon: '' },
-        { to: '/dropshipper/api', label: 'API', icon: '' },
-      ],
-    },
-  ],
-  seller: [
-    {
-      label: 'Analytics',
-      items: [
-        { to: '/fournisseur', label: 'Dashboard', icon: '' },
-        { to: '/fournisseur/trending', label: 'Trending', icon: '', badge: 'Hot', badgeTone: 'red' },
-      ],
-    },
-    {
-      label: 'Support',
-      items: [
-        { to: '/fournisseur/support', label: 'Tickets', icon: '' },
-        { to: '/fournisseur/chat', label: 'Chat', icon: '' },
-      ],
-    },
-    {
-      label: 'Operations',
-      items: [
-        { to: '/fournisseur/orders', label: 'Orders', icon: '' },
-        { to: '/fournisseur/manifests', label: 'Manifests', icon: '' },
-        { to: '/fournisseur/wholesale-orders', label: 'Wholesale orders', icon: '' },
-        { to: '/fournisseur/reservations', label: 'Reservations', icon: '' },
-      ],
-    },
-    {
-      label: 'Product Management',
-      items: [
-        { to: '/fournisseur/products', label: 'My products', icon: '' },
-        { to: '/fournisseur/products/add', label: 'Add product', icon: '' },
-      ],
-    },
-    {
-      label: 'Stock Management',
-      items: [
-        { to: '/fournisseur/inventory', label: 'Stock inventory', icon: '' },
-        { to: '/fournisseur/storage-requests', label: 'Storage requests', icon: '' },
-      ],
-    },
-    {
-      label: 'Warehouses & Logistics',
-      items: [
-        { to: '/fournisseur/warehouses', label: 'Warehouses', icon: '' },
-        { to: '/fournisseur/packaging', label: 'Packaging', icon: '' },
-      ],
-    },
-    {
-      label: 'Affiliation',
-      items: [{ to: '/fournisseur/affiliation', label: 'Affiliate programs', icon: '', badge: 'New', badgeTone: 'blue' }],
-    },
-  ],
-  confirmateur: [
-    {
-      label: 'Orders',
-      items: [
-        { to: '/confirmateur', label: 'Pending orders', icon: '📤' },
-      ],
-    },
-    {
-      label: 'Dashboard',
-      items: [
-        { to: '/confirmateur/dashboard', label: 'All confirmations', icon: '📊' },
-        { to: '/confirmateur/my-dashboard', label: 'My confirmations', icon: '👤' },
-      ],
-    },
+    { label: 'Shop', items: [
+      { to: '/dropshipper/store', label: 'Catalog', icon: '' },
+      { to: '/dropshipper/commandes', label: 'My orders', icon: '' },
+      { to: '/dropshipper/support', label: 'Support', icon: '' },
+    ] },
   ],
 };
 
-NAV.admin = [...(NAV.admin ?? []), ...(NAV.chef ?? []), ...(NAV.support ?? []), ...(NAV.stocking ?? []), ...(NAV.confirmateur ?? [])];
-
-const ROLE_LABEL: Record<string, string> = { admin: 'Admin', customer: 'Customer', seller: 'Seller' };
+const ROLE_LABEL: Record<string, string> = { admin: 'Admin', customer: 'Customer' };
 const ROLE_TONE: Record<string, string> = {
   admin: 'bg-red-100 text-red-700',
   customer: 'bg-emerald-100 text-emerald-700',
-  seller: 'bg-sky-100 text-sky-700',
 };
 const BADGE_TONE: Record<string, string> = {
   red: 'bg-rose-500/10 text-rose-600 ring-rose-200',
@@ -425,27 +117,6 @@ function useSupportUnread() {
     const iv = setInterval(load, 20000);
     return () => clearInterval(iv);
   }, []);
-  return n;
-}
-
-function useChatUnread() {
-  const { user } = useAuth();
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    if (!user || !['admin', 'customer', 'seller'].includes(user.role)) {
-      setN(0);
-      return;
-    }
-    const load = () => {
-      apiGet<{ count: number }>('/chat/unread')
-        .then((d) => setN(d.count))
-        .catch(() => setN(0));
-    };
-    load();
-    const iv = setInterval(load, 15000);
-    return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.role]);
   return n;
 }
 
@@ -950,25 +621,6 @@ function DsPromoCards() {
   );
 }
 
-function FourPromoCard() {
-  return (
-    <div className="mx-3 mt-0 space-y-2">
-      <div className="relative overflow-hidden rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-slate-100 p-3 text-center">
-        <div className="pointer-events-none absolute -end-6 -top-8 h-20 w-20 rounded-full bg-brand-100/40 blur-2xl" />
-        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-600 ring-1 ring-rose-200">
-          Not eligible
-        </span>
-        <div className="mt-2 flex items-center justify-center gap-1 text-xs font-semibold text-slate-700">
-          <span></span> Sell dropshipping
-        </div>
-        <button className="mt-2 rounded-lg border border-slate-300 bg-white px-4 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50">
-          Apply now
-        </button>
-      </div>
-    </div>
-  );
-}
-
 const FOUR_BADGES = ['Up to Date Stock', 'Quality Products', 'Reliable Fulfillment'];
 
 function FourBadges() {
@@ -994,7 +646,6 @@ export function Layout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('shopora.sidebar.collapsed') === '1');
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const unreadCount = useSupportUnread();
-  const chatUnread = useChatUnread();
 
   useEffect(() => {
     localStorage.setItem('shopora.sidebar.collapsed', collapsed ? '1' : '0');
@@ -1005,15 +656,8 @@ export function Layout({ children }: { children: ReactNode }) {
   }, [location.pathname]);
   if (!user) return null;
 
-  const sections = (() => {
-    const base = NAV[user.role] ?? [];
-    if (user.role !== 'seller') return base;
-    const idx = base.findIndex((s) => s.label === 'Operations');
-    const out = [...base];
-    out.splice(idx === -1 ? 1 : idx + 1, 0, FULFILLMENT_SECTION);
-    return out;
-  })();
-  const home = user.role === 'customer' ? '/dropshipper' : user.role === 'seller' ? '/fournisseur' : '/admin';
+  const sections = NAV[user.role] ?? [];
+  const home = user.role === 'admin' ? '/admin' : '/dropshipper';
 
   const childActive = (c: NavChild): boolean => {
     if (c.end) return location.pathname === c.to;
@@ -1059,7 +703,6 @@ export function Layout({ children }: { children: ReactNode }) {
       </div>
 
       {!collapsed && user.role === 'customer' && <DsPromoCards />}
-      {!collapsed && user.role === 'seller' && <FourPromoCard />}
 
       <nav className={`min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4 ${collapsed ? 'space-y-2' : ''}`}>
         {sections.map((section) => (
@@ -1104,9 +747,6 @@ export function Layout({ children }: { children: ReactNode }) {
                           )}
                           {item.label === 'Tickets' && unreadCount > 0 && (
                             <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${active ? 'bg-white/25 text-white' : 'bg-rose-500 text-white'}`}>{unreadCount}</span>
-                          )}
-                          {(item.label === 'Team chat' || item.label === 'Chat') && chatUnread > 0 && (
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${active ? 'bg-white/25 text-white' : 'bg-rose-500 text-white'}`}>{chatUnread}</span>
                           )}
                           {item.children && (
                             <svg

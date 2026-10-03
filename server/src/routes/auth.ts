@@ -10,17 +10,11 @@ const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email'),
   password: z.string().min(12, 'Password must be at least 12 characters'),
-  role: z.enum(['customer', 'seller']).optional(),
-  cin: z.string().max(50).optional().nullable(),
-  shop_name: z.string().trim().max(160).optional().nullable(),
-  phone: z.string().trim().max(50).optional().nullable(),
-  questionnaire: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
 });
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email'),
   password: z.string().min(1, 'Password is required'),
-  portal: z.enum(['front', 'staff']).optional(),
 });
 
 const updateMeSchema = z.object({
@@ -28,8 +22,7 @@ const updateMeSchema = z.object({
   photo: z.string().nullable().optional(),
 });
 
-const FRONT_ROLES: Role[] = ['customer', 'seller'];
-const STAFF_ROLES: Role[] = ['admin'];
+const LOGIN_ROLES: Role[] = ['admin', 'customer'];
 
 const publicUser = (u: { id: number; name: string; email: string; role: Role; photo: string | null; cin: string | null; created_at: string }) => ({
   id: u.id,
@@ -61,46 +54,28 @@ export function authRoutes(store: Store): Router {
     };
 
   router.post('/register', throttle(5, 15 * 60_000, (req) => req.ip ?? req.socket.remoteAddress ?? 'unknown'), validateBody(registerSchema), ah(async (req, res) => {
-    const { name, email, password, role } = req.body;
+    const { name, email, password } = req.body;
     const existing = await store.findUserByEmail(email);
     if (existing) {
       res.status(409).json({ success: false, error: 'An account with this email already exists' });
       return;
     }
-    const user = await store.createUser({ name, email, password_hash: await bcrypt.hash(password, 12), role: role ?? 'customer', cin: req.body.cin ?? null });
-    if ((role ?? 'customer') === 'customer') {
-      try {
-        const org = await store.createSellerSignup({
-          owner_name: name,
-          email,
-          shop_name: req.body.shop_name ?? null,
-          phone: req.body.phone ?? null,
-          tags: Array.isArray(req.body.questionnaire) ? req.body.questionnaire : [],
-        });
-        console.log(`[signup] New seller organization #${org.id} (${org.code}) for ${email}`);
-      } catch (e) {
-        console.error('[signup] Failed to create seller organization:', e);
-      }
-    }
+    const user = await store.createUser({ name, email, password_hash: await bcrypt.hash(password, 12), role: 'customer', cin: null });
     const token = signToken({ id: user.id, role: user.role });
     res.status(201).json({ success: true, data: { token, user: publicUser(user) } });
   }));
 
   router.post('/login', throttle(10, 15 * 60_000, (req) => `${req.ip ?? req.socket.remoteAddress ?? 'unknown'}:${String(req.body?.email ?? '').toLowerCase()}`), validateBody(loginSchema), ah(async (req, res) => {
-    const { email, password, portal } = req.body;
+    const { email, password } = req.body;
     const user = await store.findUserByEmail(email);
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       res.status(401).json({ success: false, error: 'Invalid email or password' });
       return;
     }
-    const isStaff = portal === 'staff';
-    const allowedRoles = isStaff ? STAFF_ROLES : FRONT_ROLES;
-    if (!allowedRoles.includes(user.role)) {
+    if (!LOGIN_ROLES.includes(user.role)) {
       res.status(403).json({
         success: false,
-        error: isStaff
-          ? 'This login is reserved for admin accounts. Please use the customer or seller login.'
-          : 'This login is reserved for customers and sellers. Please use the admin login.',
+        error: 'This account cannot sign in to Shopora.',
       });
       return;
     }

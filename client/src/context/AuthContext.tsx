@@ -9,8 +9,8 @@ interface ImpersonatorSession {
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string, portal?: 'front' | 'staff') => Promise<AuthUser>;
-  register: (name: string, email: string, password: string, role: string, extra?: Record<string, unknown>) => Promise<AuthUser>;
+  login: (email: string, password: string) => Promise<AuthUser>;
+  register: (name: string, email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   impersonate: (token: string, user: AuthUser) => void;
   exitImpersonation: () => AuthUser | null;
@@ -59,16 +59,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = async (email: string, password: string, portal?: 'front' | 'staff') => {
-    const data = await apiPost<{ token: string; user: AuthUser }>('/auth/login', { email, password, portal });
+  const login = async (email: string, password: string) => {
+    const data = await apiPost<{ token: string; user: AuthUser }>('/auth/login', { email, password });
     localStorage.setItem('d42_token', data.token);
     localStorage.setItem('d42_user', JSON.stringify(data.user));
     setUser(data.user);
     return data.user;
   };
 
-  const register = async (name: string, email: string, password: string, role: string, extra?: Record<string, unknown>) => {
-    const data = await apiPost<{ token: string; user: AuthUser }>('/auth/register', { name, email, password, role, ...(extra ?? {}) });
+  const register = async (name: string, email: string, password: string) => {
+    const data = await apiPost<{ token: string; user: AuthUser }>('/auth/register', { name, email, password });
     localStorage.setItem('d42_token', data.token);
     localStorage.setItem('d42_user', JSON.stringify(data.user));
     setUser(data.user);

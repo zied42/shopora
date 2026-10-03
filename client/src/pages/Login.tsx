@@ -4,7 +4,7 @@ import { useAuth, useApiError } from '../context/AuthContext';
 import { Button, Field, Input } from '../components/ui';
 import AuthShell from '../components/AuthShell';
 
-const FRONT_ROLES = ['customer', 'seller'];
+const FRONT_ROLES = ['customer', 'admin'];
 
 export default function Login() {
   const { login, logout } = useAuth();
@@ -18,13 +18,13 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      const user = await login(email, password, 'front');
+      const user = await login(email, password);
       if (!FRONT_ROLES.includes(user.role)) {
         logout();
-        err(new Error('This login is reserved for customers and sellers. Please use the admin login.'));
+        err(new Error('This account cannot sign in to Shopora.'));
         return;
       }
-      navigate('/intro');
+      navigate('/', { replace: true });
     } catch (err2) {
       err(err2);
     } finally {
@@ -35,7 +35,7 @@ export default function Login() {
   return (
     <AuthShell
       title="Welcome back"
-      subtitle="Sign in as a dropshipper or fournisseur to manage your business on one platform."
+      subtitle="Sign in to shop or manage the store."
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Email">

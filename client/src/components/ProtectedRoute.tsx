@@ -16,7 +16,7 @@ export function ProtectedRoute({ roles }: { roles: string[] }) {
 
   if (!user) return <Navigate to="/login" replace />;
   if (!roles.includes(user.role)) {
-    const destination = user.role === 'customer' ? '/dropshipper' : user.role === 'seller' ? '/fournisseur' : '/admin';
+    const destination = user.role === 'admin' ? '/admin' : user.role === 'customer' ? '/dropshipper' : '/login';
     return <Navigate to={destination} replace />;
   }
 

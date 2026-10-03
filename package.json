@@ -2,7 +2,7 @@
   "name": "shopora",
   "version": "0.1.0",
   "private": true,
-  "description": "Dropshipping platform MVP (.42) — Phase 1",
+  "description": "E-commerce learning project with a React storefront and Express API",
   "workspaces": [
     "server",
     "client"

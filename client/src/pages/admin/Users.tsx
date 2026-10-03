@@ -68,7 +68,7 @@ export default function AdminUsers() {
                     <Select value={u.role} onChange={(e) => changeRole(u.id, e.target.value)} className="w-40">
                       <option value="admin">Admin</option>
                       <option value="customer">Customer</option>
-                      <option value="seller">Seller</option>
+                      {u.role === 'seller' && <option value="seller" disabled>Legacy seller account</option>}
                     </Select>
                   </td>
                   <td className="px-3 py-3 text-slate-500">{new Date(u.created_at).toLocaleDateString()}</td>
@@ -90,7 +90,7 @@ export default function AdminUsers() {
 function AddUserModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('password');
+  const [password, setPassword] = useState('');
   const [cin, setCin] = useState('');
   const [role, setRole] = useState('customer');
   const [saving, setSaving] = useState(false);
@@ -114,12 +114,11 @@ function AddUserModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
         <Field label="Full name"><Input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
         <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
         <Field label="Cin Card"><Input value={cin} onChange={(e) => setCin(e.target.value)} placeholder="e.g. 04678123" /></Field>
-        <Field label="Password"><Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} /></Field>
+        <Field label="Temporary password"><Input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={12} /></Field>
         <Field label="Role">
           <Select value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="admin">Admin</option>
             <option value="customer">Customer</option>
-            <option value="seller">Seller</option>
           </Select>
         </Field>
         <div className="flex justify-end gap-2">
