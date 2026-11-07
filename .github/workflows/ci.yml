@@ -8,18 +8,18 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+  security-events: write
 
 jobs:
   checks:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -27,16 +27,40 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Gitleaks
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.0
+
       - name: Scan repository history for secrets
-        uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: gitleaks
+        continue-on-error: true
+        run: |
+          "$(go env GOPATH)/bin/gitleaks" detect --source . --report-format sarif --report-path gitleaks.sarif --exit-code 1
+
+      - name: Upload Gitleaks findings to code scanning
+        if: always() && hashFiles('gitleaks.sarif') != ''
+        uses: github/codeql-action/upload-sarif@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
+        with:
+          sarif_file: gitleaks.sarif
+
+      - name: Fail if Gitleaks found secrets
+        if: steps.gitleaks.outcome == 'failure'
+        run: exit 1
 
       - name: Check TypeScript
         run: npm run typecheck
 
       - name: Build app
         run: npm run build
+
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format cyclonedx > sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: shopora-sbom
+          path: sbom.json
+          if-no-files-found: error
 
       - name: Audit production dependencies
         run: npm audit --omit=dev
