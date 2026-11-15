@@ -2,6 +2,7 @@ import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import { randomUUID } from 'node:crypto';
 import { ah, requireAuth } from '../middleware/auth';
 import { uploadsDir } from '../lib/paths';
 import type { Store } from '../store/types';
@@ -15,7 +16,7 @@ const storage = multer.diskStorage({
     const extensions: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp', 'application/pdf': '.pdf', 'video/mp4': '.mp4', 'video/webm': '.webm' };
     const ext = extensions[file.mimetype] ?? '.bin';
     const prefix = file.mimetype.startsWith('video/') ? 'vid' : file.mimetype === 'application/pdf' ? 'doc' : 'img';
-    cb(null, `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+    cb(null, `${prefix}-${randomUUID()}${ext}`);
   },
 });
 
@@ -105,6 +106,7 @@ export function uploadRoutes(store: Store): Router {
     const url = `${env.API_BASE_URL}/uploads/${req.file.filename}`;
     try {
       await store.saveUploadFile(req.file.filename, uploadData, req.file.mimetype || 'application/octet-stream');
+      fs.unlinkSync(req.file.path);
     } catch {
       // Persistence store unavailable: the file stays only on local disk
       // (and will be lost on the next server restart), the URL still works meanwhile.
@@ -126,6 +128,7 @@ export function uploadRoutes(store: Store): Router {
     const url = `${env.API_BASE_URL}/uploads/${req.file.filename}`;
     try {
       await store.saveUploadFile(req.file.filename, uploadData, req.file.mimetype || 'video/mp4');
+      fs.unlinkSync(req.file.path);
     } catch {
       // Persistence store unavailable: the file stays only on local disk.
     }

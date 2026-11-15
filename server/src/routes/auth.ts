@@ -39,10 +39,14 @@ export function authRoutes(store: Store): Router {
   const router = Router();
 
   const attempts = new Map<string, { count: number; resetAt: number }>();
+  let lastAttemptSweep = 0;
   const throttle = (limit: number, windowMs: number, keyFor: (req: import('express').Request) => string) =>
     (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
       const now = Date.now();
-      for (const [key, entry] of attempts) if (entry.resetAt <= now) attempts.delete(key);
+      if (now - lastAttemptSweep > windowMs) {
+        for (const [key, entry] of attempts) if (entry.resetAt <= now) attempts.delete(key);
+        lastAttemptSweep = now;
+      }
       const key = keyFor(req);
       const entry = attempts.get(key);
       if (entry && entry.count >= limit) {
@@ -50,6 +54,7 @@ export function authRoutes(store: Store): Router {
         res.status(429).json({ success: false, error: 'Too many authentication attempts. Try again later.' });
         return;
       }
+      if (attempts.size >= 20000 && !entry) attempts.delete(attempts.keys().next().value as string);
       attempts.set(key, entry ? { ...entry, count: entry.count + 1 } : { count: 1, resetAt: now + windowMs });
       next();
     };

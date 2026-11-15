@@ -1487,10 +1487,6 @@ export interface BatchScanInfo {
   batch_code: string;
   product_name: string;
   color: string | null;
-  supplier: string;
-  request_id: number;
-  quantity: number;
-  locations: { inventory_name: string; quantity: number }[];
 }
 
 export interface StockRefillRequestsResult {

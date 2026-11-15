@@ -9,7 +9,7 @@ const createSchema = z.object({
   order_id: z.number().int().positive(),
   type: z.enum(['retour', 'echange']),
   reason: z.string().min(3, 'Please describe the reason'),
-  attachments: z.array(z.string()).optional(),
+  attachments: z.array(z.string().max(500)).max(10).optional(),
 });
 
 const patchSchema = z.object({
@@ -26,13 +26,13 @@ export function returnRoutes(store: Store): Router {
     res.json({ success: true, data: returns });
   }));
 
-  router.post('/', requireRole('customer', 'dropshipper', 'admin', 'fournisseur', 'seller'), validateBody(createSchema), ah(async (req, res) => {
+  router.post('/', requireRole('customer', 'dropshipper', 'admin'), validateBody(createSchema), ah(async (req, res) => {
     const order = await store.getOrder(req.body.order_id);
     if (!order) {
       res.status(404).json({ success: false, error: 'Commande not found' });
       return;
     }
-    if ((req.user.role === 'customer' || req.user.role === 'dropshipper') && order.dropshipper_id !== req.user.id) {
+    if (req.user.role !== 'admin' && order.dropshipper_id !== req.user.id) {
       res.status(403).json({ success: false, error: 'You can only request a return for your own commandes' });
       return;
     }

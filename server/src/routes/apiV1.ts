@@ -2,8 +2,10 @@ import { NextFunction, Request, Response, Router } from 'express';
 import { Store } from '../store';
 import { OrderFull, ProductWithSupplier } from '../store/types';
 import { partnerId } from '../lib/partnerId';
+import { env } from '../config/env';
+import { ah } from '../middleware/auth';
 
-const ORIGIN = (req: Request) => `${req.protocol}://${req.get('host')}`;
+const ORIGIN = (_req: Request) => env.API_BASE_URL.replace(/\/$/, '');
 
 const TND = { id: '1', ISO_4217: 'TND', symbol: 'د.ت', decimals: 3 } as const;
 
@@ -49,12 +51,20 @@ const DELEGATIONS: Record<string, string[]> = {
 
 /* ------------------------------------------------------------------ rate limits */
 const BUCKETS = new Map<string, number[]>();
+let lastSweep = 0;
 
 function rateLimit(bucket: string, limit: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction) => {
     const keyId = String(res.locals.apiKeyId);
     const key = `${keyId}:${bucket}`;
     const now = Date.now();
+    if (now - lastSweep > windowMs) {
+      for (const [bucketKey, timestamps] of BUCKETS) {
+        const fresh = timestamps.filter((t) => now - t < windowMs);
+        if (fresh.length) BUCKETS.set(bucketKey, fresh); else BUCKETS.delete(bucketKey);
+      }
+      lastSweep = now;
+    }
     const hits = (BUCKETS.get(key) ?? []).filter((t) => now - t < windowMs);
     if (hits.length >= limit) {
       res.status(429).set('X-RateLimit-Limit', String(limit)).set('X-RateLimit-Remaining', '0').json({ error: 'Rate limit exceeded. Please retry later.' });
@@ -100,7 +110,7 @@ async function bearerAuth(store: Store, req: Request, res: Response, next: NextF
   }
   req.user = { id: ctx.user.id, role: ctx.user.role, name: ctx.user.name, email: ctx.user.email };
   res.locals.apiKeyId = ctx.keyId;
-  void store.touchApiKey(ctx.keyId);
+  void store.touchApiKey(ctx.keyId).catch(() => undefined);
   next();
 }
 
@@ -211,7 +221,7 @@ function statusGroup(orders: OrderFull[]) {
 export function apiV1Routes(store: Store): Router {
   const router = Router();
 
-  router.use((req, res, next) => void bearerAuth(store, req, res, next));
+  router.use((req, res, next) => { void bearerAuth(store, req, res, next).catch(next); });
 
   /* ---------------------------------------------------------------- meta */
   router.get('/me', rateLimit('read', 120, 60000), (req, res) => {
@@ -258,32 +268,32 @@ export function apiV1Routes(store: Store): Router {
   });
 
   /* ------------------------------------------------------------- products */
-  router.get('/products', rateLimit('read', 120, 60000), async (req, res) => {
+  router.get('/products', rateLimit('read', 120, 60000), ah(async (req, res) => {
     const search = typeof req.query.search === 'string' ? req.query.search : undefined;
     const page = Math.max(1, Number(req.query.page) || 1);
     const perPage = Math.min(100, Math.max(1, Number(req.query.per_page) || 20));
-    const all = await store.listProducts({ ...(search ? { q: search } : {}), excludeCategories: ['fulfillment'] });
-    const active = all.filter((p) => p.is_active);
+    const all = await store.listProducts({ ...(search ? { q: search } : {}), activeOnly: true, hideIneligible: true, excludeCategories: ['fulfillment'] });
+    const active = all.filter((p) => p.is_active && p.moderation_status === 'approved');
     const data = active.slice((page - 1) * perPage, page * perPage).map((p) => mapProductDto(p, ORIGIN(req)));
     res.json({ data, pagination: { total: active.length, current_page: page, per_page: perPage, last_page: Math.max(1, Math.ceil(active.length / perPage)) } });
-  });
+  }));
 
-  router.get('/products/:uuid', rateLimit('read', 120, 60000), async (req, res) => {
+  router.get('/products/:uuid', rateLimit('read', 120, 60000), ah(async (req, res) => {
     const id = Number(req.params.uuid);
     if (!Number.isFinite(id) || id <= 0) {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
     const p = await store.getProduct(id);
-    if (!p || !p.is_active) {
+    if (!p || !p.is_active || p.moderation_status !== 'approved' || (p.offers ?? [p.category]).includes('fulfillment')) {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
     res.json({ ...mapProductDto(p as ProductWithSupplier, ORIGIN(req)), created_at: p.created_at });
-  });
+  }));
 
   /* --------------------------------------------------------------- orders */
-  router.get('/orders', rateLimit('read', 120, 60000), async (req, res) => {
+  router.get('/orders', rateLimit('read', 120, 60000), ah(async (req, res) => {
     const start = parseDateOr422(req.query.start_date, 'start_date', res);
     if (start === undefined && req.query.start_date !== undefined) return;
     const end = parseDateOr422(req.query.end_date, 'end_date', res);
@@ -306,18 +316,18 @@ export function apiV1Routes(store: Store): Router {
     const perPage = Math.min(100, Math.max(1, Number(req.query.per_page) || 20));
     const data = list.slice((page - 1) * perPage, page * perPage).map((o) => mapOrderListDto(o, ORIGIN(req)));
     res.json({ data, pagination: { total: list.length, current_page: page, per_page: perPage, last_page: Math.max(1, Math.ceil(list.length / perPage)) } });
-  });
+  }));
 
-  router.get('/orders/:id(\\d+)', rateLimit('read', 120, 60000), async (req, res) => {
+  router.get('/orders/:id(\\d+)', rateLimit('read', 120, 60000), ah(async (req, res) => {
     const o = await store.getOrder(Number(req.params.id));
     if (!o || o.dropshipper_id !== req.user.id) {
       res.status(404).json({ error: 'Order not found' });
       return;
     }
     res.json(mapOrderDetailDto(o));
-  });
+  }));
 
-  router.post('/orders', rateLimit('write', 30, 60000), async (req, res) => {
+  router.post('/orders', rateLimit('write', 30, 60000), ah(async (req, res) => {
     const body = req.body ?? {};
     const address = body.address ?? {};
     const items = Array.isArray(body.items) ? body.items : [];
@@ -334,7 +344,7 @@ export function apiV1Routes(store: Store): Router {
         return;
       }
       const p = await store.getProduct(pid);
-      if (!p || !p.is_active) {
+      if (!p || !p.is_active || p.moderation_status !== 'approved' || (p.offers ?? [p.category]).includes('fulfillment')) {
         res.status(422).json({ error: `Product ${pid} not found or unavailable.` });
         return;
       }
@@ -354,9 +364,9 @@ export function apiV1Routes(store: Store): Router {
     });
     await store.updateOrderStatus(order.order.id, 'pending');
     res.status(201).json({ id: order.order.id });
-  });
+  }));
 
-  router.post('/orders/:id(\\d+)/cancel', rateLimit('destructive', 20, 60000), async (req, res) => {
+  router.post('/orders/:id(\\d+)/cancel', rateLimit('destructive', 20, 60000), ah(async (req, res) => {
     const o = await store.getOrder(Number(req.params.id));
     if (!o || o.dropshipper_id !== req.user.id) {
       res.status(404).json({ error: 'Order not found' });
@@ -368,7 +378,7 @@ export function apiV1Routes(store: Store): Router {
     }
     await store.updateOrderStatus(o.id, 'cancelled');
     res.json({ success: true, canceled_shipments: 0 });
-  });
+  }));
 
   /* -------------------------------------------------------------- dashboard */
   const myOrders = (userId: number) => store.listOrders({ role: 'dropshipper', userId });
@@ -388,7 +398,7 @@ export function apiV1Routes(store: Store): Router {
     return list;
   };
 
-  router.get('/dashboard/overview', rateLimit('dashboard', 12, 60000), async (req, res) => {
+  router.get('/dashboard/overview', rateLimit('dashboard', 12, 60000), ah(async (req, res) => {
     const orders = await withDates(req, res);
     if (!orders) return;
     const group = (pred: (o: OrderFull) => boolean) => statusGroup(orders.filter(pred));
@@ -399,9 +409,9 @@ export function apiV1Routes(store: Store): Router {
       shipments_failed_delivery: group((o) => o.status === 'retour' || o.status === 'cancelled'),
       stats_by_order_type: [{ order_type: 'dropshipping', shipments_pending: group((o) => o.status === 'pending' || o.status === 'confirmed'), shipments_delivered_paid: group((o) => o.status === 'delivered' && o.payment_status === 'paid'), shipments_delivered_non_paid: group((o) => o.status === 'delivered' && o.payment_status !== 'paid'), shipments_failed_delivery: group((o) => o.status === 'retour' || o.status === 'cancelled') }],
     });
-  });
+  }));
 
-  router.get('/dashboard/delivery-stats', rateLimit('dashboard', 12, 60000), async (req, res) => {
+  router.get('/dashboard/delivery-stats', rateLimit('dashboard', 12, 60000), ah(async (req, res) => {
     const orders = (await withDates(req, res)) ?? [];
     const byStatus = (s: string) => orders.filter((o) => o.status === s);
     const delivered = byStatus('delivered');
@@ -427,14 +437,14 @@ export function apiV1Routes(store: Store): Router {
       delivered_within_2bd_pct: within(2),
       delivered_over_2bd_pct: days.length ? Math.round((100 - within(2)) * 10) / 10 : 0,
     });
-  });
+  }));
 
   const emptyConfirmationStats = (res: Response) => res.json({ has_stats: false, stats: null });
 
   router.get('/dashboard/confirmation-stats', rateLimit('dashboard', 12, 60000), (_req, res) => emptyConfirmationStats(res));
   router.get('/dashboard/internal-confirmation-stats', rateLimit('dashboard', 12, 60000), (_req, res) => emptyConfirmationStats(res));
 
-  router.get('/dashboard/product-performance', rateLimit('dashboard', 12, 60000), async (req, res) => {
+  router.get('/dashboard/product-performance', rateLimit('dashboard', 12, 60000), ah(async (req, res) => {
     const orders = (await withDates(req, res)) ?? [];
     const sortBy = typeof req.query.sort_by === 'string' ? req.query.sort_by : 'shipped_orders';
     const validSorts = ['shipped_orders', 'delivered_orders', 'failed_orders', 'confirmed_return_orders', 'in_transit_orders', 'returning_orders', 'leads_total', 'leads_confirmed', 'overall_confirmation_rate', 'absolute_confirmation_rate', 'conversion_rate'];
@@ -480,7 +490,7 @@ export function apiV1Routes(store: Store): Router {
     const page = Math.max(1, Number(req.query.page) || 1);
     const perPage = Math.min(50, Math.max(1, Number(req.query.per_page) || 20));
     res.json({ products: rows.slice((page - 1) * perPage, page * perPage), total: rows.length });
-  });
+  }));
 
   /* ---------------------------------------------------------------- webhooks */
   const webhooks = new Map<number, { id: number; url: string; events: string[]; secret: string | null; status: string; created_at: string; last_triggered_at: string | null; failure_count: number }[]>();

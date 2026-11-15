@@ -6,6 +6,7 @@ import { Store } from '../store';
 import { isShipmentZone } from '../store/shipmentZones';
 import { buildChefTickets, createChefTicket, updateChefTicket } from '../data/chefTickets';
 import { logStaffActivity } from '../lib/staffActivity';
+import { isSupplierRole } from '../store/roles';
 
 const STATUSES = ['Pending', 'Confirmed', 'Approved', 'In preparation', 'Ready', 'Shipped', 'Completed', 'Rejected'] as const;
 
@@ -37,17 +38,8 @@ const saveSchema = z.object({
 export function stockingRoutes(store: Store): Router {
   const router = Router();
   router.use(requireAuth);
-  // Privacy hard gate: everything under /stocking/* is staff-internal. Dropshippers and fournisseurs
-  // are only allowed the picking-preview and stock-refill flows their own pages legitimately reuse.
-  const openForPeers = (m: string, p: string): boolean =>
-    (m === 'GET' && p === '/orders-pickability') ||
-    (m === 'POST' && /^\/picks\/\d+$/.test(p)) ||
-    (m === 'GET' && /^\/orders\/\d+\/pick-plan$/.test(p)) ||
-    (m === 'POST' && /^\/orders\/\d+\/pick-scan$/.test(p)) ||
-    (m === 'GET' && /^\/stock-refill-requests(\/\d+)?$/.test(p)) ||
-    (m === 'PUT' && /^\/stock-refill-requests\/\d+$/.test(p));
   router.use((req, res, next) => {
-    if (openForPeers(req.method, req.path)) return next();
+    if (req.method === 'GET' && req.path === '/orders-pickability' && isSupplierRole(req.user.role)) return next();
     if (req.user.role === 'stocking' || req.user.role === 'admin' || req.user.role === 'chef') return next();
     res.status(403).json({ success: false, error: 'Forbidden' });
   });
@@ -120,8 +112,13 @@ export function stockingRoutes(store: Store): Router {
     res.json({ success: true, data: row });
   }));
 
-  router.get('/orders-pickability', ah(async (_req, res) => {
-    const rows = await store.listOrdersPickability();
+  router.get('/orders-pickability', ah(async (req, res) => {
+    let rows = await store.listOrdersPickability();
+    if (isSupplierRole(req.user.role)) {
+      const ownedOrders = await store.listOrders({ role: req.user.role, userId: req.user.id });
+      const ownedIds = new Set(ownedOrders.map((order) => order.id));
+      rows = rows.filter((row) => ownedIds.has(row.order_id));
+    }
     res.json({ success: true, data: rows });
   }));
 
