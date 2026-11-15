@@ -25,7 +25,7 @@ const replySchema = z.object({
 
 const chefTicketCreateSchema = z.object({
   author_name: z.string().min(1),
-  owner_names: z.array(z.string()).default([]),
+  owner_names: z.array(z.string().max(200)).max(50).default([]),
   subject: z.string().min(1),
   description: z.string().default(''),
   department: z.string().default('Commercial'),
@@ -252,8 +252,8 @@ export function supportRoutes(store: Store): Router {
     dropshipping_eligible: z.boolean().optional(),
     account_manager: z.string().trim().max(100).nullable().optional(),
     business_developer: z.string().trim().max(100).nullable().optional(),
-    doc_files: z.record(z.string()).optional(),
-    doc_statuses: z.record(z.string()).optional(),
+    doc_files: z.record(z.string(), z.string()).optional(),
+    doc_statuses: z.record(z.string(), z.string()).optional(),
   });
 
   function splitArr(v: unknown): string[] {

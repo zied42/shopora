@@ -18,7 +18,7 @@ const createOrderSchema = z.object({
   city: z.string().optional().nullable(),
   shipping_address: z.string().min(3, 'Shipping address is required'),
   payment_method: z.enum(['flouci', 'cod']),
-  items: z.array(itemSchema).min(1, 'At least one item is required'),
+  items: z.array(itemSchema).min(1, 'At least one item is required').max(100),
   offer_type: z.enum(['dropshipping', 'wholesale', 'fulfillment']).optional(),
   dropshipper_id: z.number().int().positive().optional(),
   locality_id: z.number().int().positive().optional().nullable(),

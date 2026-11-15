@@ -2,6 +2,8 @@ import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import { randomUUID } from 'node:crypto';
+import expressRateLimit from 'express-rate-limit';
 import { ah, requireAuth } from '../middleware/auth';
 import { uploadsDir } from '../lib/paths';
 import type { Store } from '../store/types';
@@ -15,7 +17,7 @@ const storage = multer.diskStorage({
     const extensions: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp', 'application/pdf': '.pdf', 'video/mp4': '.mp4', 'video/webm': '.webm' };
     const ext = extensions[file.mimetype] ?? '.bin';
     const prefix = file.mimetype.startsWith('video/') ? 'vid' : file.mimetype === 'application/pdf' ? 'doc' : 'img';
-    cb(null, `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+    cb(null, `${prefix}-${randomUUID()}${ext}`);
   },
 });
 
@@ -36,6 +38,14 @@ const uploadVideo = multer({
     else cb(new Error('Only video files are allowed') as never);
   },
 });
+
+function safeUploadPath(filename: string): string {
+  const safeName = path.basename(filename);
+  if (!/^(img|doc|vid)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|gif|webp|pdf|mp4|webm)$/i.test(safeName)) {
+    throw new Error('Invalid generated upload filename');
+  }
+  return path.join(uploadsDir, safeName);
+}
 
 function contentTypeFor(name: string): string {
   const ext = path.extname(name).toLowerCase();
@@ -91,20 +101,31 @@ export function uploadRoutes(store: Store): Router {
   const router = Router();
   router.use(requireAuth);
 
-  router.post('/', upload.single('file'), ah(async (req, res) => {
+  const rateLimitUploads = expressRateLimit({
+    windowMs: 24 * 60 * 60_000,
+    limit: 40,
+    keyGenerator: (req) => `upload-user:${req.user.id}`,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: 'Upload limit reached. Try again later.' },
+  });
+
+  router.post('/', rateLimitUploads, upload.single('file'), ah(async (req, res) => {
     if (!req.file) {
       res.status(400).json({ success: false, error: 'No file uploaded' });
       return;
     }
-    const uploadData = fs.readFileSync(req.file.path);
+    const localPath = safeUploadPath(req.file.filename);
+    const uploadData = fs.readFileSync(localPath);
     if (!matchesFileSignature(req.file.mimetype, uploadData)) {
-      fs.unlinkSync(req.file.path);
+      fs.unlinkSync(localPath);
       res.status(400).json({ success: false, error: 'File content does not match an allowed file type' });
       return;
     }
     const url = `${env.API_BASE_URL}/uploads/${req.file.filename}`;
     try {
       await store.saveUploadFile(req.file.filename, uploadData, req.file.mimetype || 'application/octet-stream');
+      fs.unlinkSync(localPath);
     } catch {
       // Persistence store unavailable: the file stays only on local disk
       // (and will be lost on the next server restart), the URL still works meanwhile.
@@ -112,20 +133,22 @@ export function uploadRoutes(store: Store): Router {
     res.status(201).json({ success: true, data: { url } });
   }));
 
-  router.post('/video', uploadVideo.single('file'), ah(async (req, res) => {
+  router.post('/video', rateLimitUploads, uploadVideo.single('file'), ah(async (req, res) => {
     if (!req.file) {
       res.status(400).json({ success: false, error: 'No video uploaded' });
       return;
     }
-    const uploadData = fs.readFileSync(req.file.path);
+    const localPath = safeUploadPath(req.file.filename);
+    const uploadData = fs.readFileSync(localPath);
     if (!matchesFileSignature(req.file.mimetype, uploadData)) {
-      fs.unlinkSync(req.file.path);
+      fs.unlinkSync(localPath);
       res.status(400).json({ success: false, error: 'File content does not match an allowed file type' });
       return;
     }
     const url = `${env.API_BASE_URL}/uploads/${req.file.filename}`;
     try {
       await store.saveUploadFile(req.file.filename, uploadData, req.file.mimetype || 'video/mp4');
+      fs.unlinkSync(localPath);
     } catch {
       // Persistence store unavailable: the file stays only on local disk.
     }

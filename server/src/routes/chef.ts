@@ -82,8 +82,8 @@ const supplierFlagsPatchSchema = z.object({
   dropshipping_eligible: z.boolean().optional(),
   account_manager: z.string().trim().max(100).nullable().optional(),
   business_developer: z.string().trim().max(100).nullable().optional(),
-  doc_files: z.record(z.string()).optional(),
-  doc_statuses: z.record(z.string()).optional(),
+  doc_files: z.record(z.string(), z.string()).optional(),
+  doc_statuses: z.record(z.string(), z.string()).optional(),
 });
 
 const subscriptionPatchSchema = z.object({
@@ -99,7 +99,7 @@ const collectionSchema = z.object({
   description: z.string().max(500).optional().nullable(),
   is_active: z.boolean().optional(),
   marketplace_sort_rank: z.number().int().min(0).max(100000).nullable().optional(),
-  product_ids: z.array(z.number().int().positive()).optional(),
+  product_ids: z.array(z.number().int().positive()).max(200).optional(),
 });
 
 const scanSchema = z.object({
@@ -264,7 +264,7 @@ export function chefRoutes(store: Store): Router {
 
   router.post('/tickets', validateBody(z.object({
     author_name: z.string().min(1),
-    owner_names: z.array(z.string()).default([]),
+    owner_names: z.array(z.string().max(200)).max(50).default([]),
     subject: z.string().min(1),
     description: z.string().default(''),
     department: z.string().default('All'),
@@ -1547,11 +1547,11 @@ export function chefRoutes(store: Store): Router {
     name: z.string().min(2).optional(),
     description: z.string().optional().nullable(),
     price: z.number().positive().optional(),
-    offers: z.array(z.enum(['dropshipping', 'wholesale', 'white_label'])).optional(),
+    offers: z.array(z.enum(['dropshipping', 'wholesale', 'white_label'])).max(3).optional(),
     image_url: z.string().optional().nullable(),
     video_url: z.string().optional().nullable(),
-    images: z.array(z.string()).optional(),
-    videos: z.array(z.string()).optional(),
+    images: z.array(z.string().max(2000)).max(20).optional(),
+    videos: z.array(z.string().max(2000)).max(10).optional(),
   })), ah(async (req, res) => {
     const id = Number(req.params.id);
     const product = await store.getProduct(id);

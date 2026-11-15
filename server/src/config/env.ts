@@ -33,6 +33,9 @@ if (process.env.NODE_ENV === 'production') {
   if (!process.env.DB_PASSWORD || process.env.DB_PASSWORD === 'root') {
     throw new Error('Production requires a non-default DB_PASSWORD.');
   }
+  if (!/^(1|true|yes|on)$/i.test(process.env.DB_SSL ?? '')) {
+    throw new Error('Production requires DB_SSL=true for MySQL connections.');
+  }
 }
 
 function tidbCa(): string | undefined {
@@ -47,5 +50,5 @@ export function mysqlSsl(host: string = env.DB_HOST): { ca?: string; rejectUnaut
   const isTiDb = /\.tidbcloud\.com$/i.test(host);
   if (!env.DB_SSL && !isTiDb) return undefined;
   const ca = isTiDb ? tidbCa() : undefined;
-  return { ...(ca ? { ca } : {}), rejectUnauthorized: !!ca };
+  return { ...(ca ? { ca } : {}), rejectUnauthorized: true };
 }
