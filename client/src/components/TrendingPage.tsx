@@ -163,7 +163,7 @@ export function TrendingPage({ onOpen, subtitle }: { onOpen?: (t: TrendingItem) 
 
   const open = (t: TrendingItem) => {
     if (onOpen) onOpen(t);
-    else if (t.best.product_id) navigate(`/dropshipper/store/${t.best.product_id}`);
+    else if (t.best.product_id) navigate(`/shop/${t.best.product_id}`);
   };
 
   const filtered = useMemo(() => {

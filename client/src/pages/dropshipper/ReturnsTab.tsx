@@ -223,7 +223,7 @@ export default function ReturnsTab({ type, orderFilter, exchangeCreateTo }: { ty
                 {type === 'echange' && r.status === 'approved' && (
                   <button
                     type="button"
-                    onClick={() => navigate(exchangeCreateTo ?? '/dropshipper/commandes/echange/create')}
+                    onClick={() => navigate(exchangeCreateTo ?? '/orders/echange/create')}
                     className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand-600/20 transition hover:bg-brand-700"
                   >
                     Create échange commande

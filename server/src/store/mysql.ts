@@ -108,9 +108,17 @@ import {
   StaffActivityRow,
   ServiceInscription,
   ServiceInscriptionStatus,
+  OrderPaymentAttempt,
+  OnlinePaymentStatus,
+  Reservation,
+  ReservationRefill,
+  CreateReservationInput,
+  ReservationRefillPickupItem,
+  ReservationRefillPickupListResult,
 } from './types';
+import { isCustomerRole, isSupplierRole } from './roles';
 import { inferShipmentZone, isShipmentZone, addBusinessDays } from './shipmentZones';
-import { StockError } from './types';
+import { InvalidStateError, NotFoundError, StockError } from './types';
 import { computeOrderFromItems, normName, productTrendScore, supplierOfferScore, allocateMissingIntoInventories, InventoryFreeSpace, MissingForAllocation, resolveWholesalePrice } from './shared';
 import { buildManifests } from '../data/manifests';
 import { buildPickupRequests } from '../data/pickupRequests';
@@ -153,6 +161,13 @@ type Row<T> = T & RowDataPacket;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 const b = (v: unknown): boolean => !!v;
+const mapReservationRefill = (r: Row<Record<string, unknown>>): ReservationRefill => ({
+  id: Number(r.id), reservation_id: Number(r.reservation_id), product_id: Number(r.product_id),
+  demanded_qty: Number(r.demanded_qty), got_qty: Number(r.got_qty), available_qty: Number(r.available_qty),
+  status: r.status as ReservationRefill['status'],
+  created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at ?? ''),
+  received_at: r.received_at == null ? null : r.received_at instanceof Date ? r.received_at.toISOString() : String(r.received_at),
+});
 
 function contentTypeFromFilename(name: string): string {
   const ext = path.extname(name).toLowerCase();
@@ -447,9 +462,10 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(120) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
-  role ENUM('admin','customer','seller') NOT NULL DEFAULT 'customer',
+  role ENUM('admin','support','chef','stocking','confirmateur','dropshipper','fournisseur','customer','seller') NOT NULL DEFAULT 'customer',
   photo VARCHAR(500) NULL,
   cin VARCHAR(50) NULL,
+  balance DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -590,6 +606,7 @@ CREATE TABLE IF NOT EXISTS orders (
   shipped_at TIMESTAMP NULL,
   delivered_at TIMESTAMP NULL,
   returned_at TIMESTAMP NULL,
+  settled_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_orders_ds FOREIGN KEY (dropshipper_id) REFERENCES users(id),
   CONSTRAINT fk_orders_sup FOREIGN KEY (fournisseur_id) REFERENCES users(id)
@@ -606,6 +623,38 @@ CREATE TABLE IF NOT EXISTS order_items (
   cost DECIMAL(10,2) NOT NULL,
   CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
   CONSTRAINT fk_items_product FOREIGN KEY (product_id) REFERENCES products(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS reservations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  dropshipper_id INT NOT NULL,
+  fournisseur_id INT NOT NULL,
+  product_id INT NOT NULL,
+  quantity INT NOT NULL,
+  price DECIMAL(10,3) NOT NULL,
+  deposit DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status ENUM('pending','accepted','rejected','cancelled') NOT NULL DEFAULT 'pending',
+  remaining INT NOT NULL,
+  accepted_at TIMESTAMP NULL,
+  resolved_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_reservations_ds FOREIGN KEY (dropshipper_id) REFERENCES users(id),
+  CONSTRAINT fk_reservations_sup FOREIGN KEY (fournisseur_id) REFERENCES users(id),
+  CONSTRAINT fk_reservations_product FOREIGN KEY (product_id) REFERENCES products(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS reservation_refills (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  reservation_id INT NOT NULL UNIQUE,
+  product_id INT NOT NULL,
+  demanded_qty INT NOT NULL DEFAULT 0,
+  got_qty INT NOT NULL DEFAULT 0,
+  available_qty INT NOT NULL DEFAULT 0,
+  status ENUM('requested','received') NOT NULL DEFAULT 'requested',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  received_at TIMESTAMP NULL,
+  CONSTRAINT fk_refill_reservation FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_refill_product FOREIGN KEY (product_id) REFERENCES products(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS tracks (
@@ -887,7 +936,7 @@ CREATE TABLE IF NOT EXISTS collection_products (
 CREATE TABLE IF NOT EXISTS payouts (
   id INT AUTO_INCREMENT PRIMARY KEY,
   recipient_id INT NOT NULL,
-  recipient_role ENUM('seller','customer') NOT NULL,
+  recipient_role ENUM('seller','customer','fournisseur','dropshipper') NOT NULL,
   amount DECIMAL(12,2) NOT NULL,
   period VARCHAR(50) NULL,
   status ENUM('pending','paid','cancelled') NOT NULL DEFAULT 'pending',
@@ -1419,7 +1468,7 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
         if (cin) await pool.execute('UPDATE users SET cin = ? WHERE id = ? AND cin IS NULL', [cin, Number(existing[0].id)]);
         return Number(existing[0].id);
       }
-      const [r] = await pool.execute('INSERT INTO users (name, email, password_hash, role, cin) VALUES (?,?,?,?,?)', [name, email, hash, role, cin]);
+      const [r] = await pool.execute('INSERT INTO users (name, email, password_hash, role, cin, balance) VALUES (?,?,?,?,?,?)', [name, email, hash, role, cin, role === 'dropshipper' ? 100 : 0]);
       return (r as mysql.ResultSetHeader).insertId;
     };
     await insUser('Amine Admin', 'admin@demo.com', 'admin');
@@ -1605,8 +1654,8 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
     };
     let oidCounter = 1;
 
-    const o1 = await mkOrder(dropshipper_id, a_id, 'Omar B', '+216 22 010 101', 'Tunis', 'Tunis', '12 Rue Habib Bourguiba, Tunis', 'delivered', 'paid', 'stripe', [[p1, 2], [p8, 1]]);
-    const o2 = await mkOrder(dropshipper_id, a_id, 'Yasmine K', '+216 22 010 202', 'Sousse', 'Sousse', '45 Avenue Habib Thameur, Sousse', 'shipped', 'paid', 'paypal', [[p3, 1]]);
+    const o1 = await mkOrder(dropshipper_id, a_id, 'Omar B', '+216 22 010 101', 'Tunis', 'Tunis', '12 Rue Habib Bourguiba, Tunis', 'delivered', 'paid', 'cod', [[p1, 2], [p8, 1]]);
+    const o2 = await mkOrder(dropshipper_id, a_id, 'Yasmine K', '+216 22 010 202', 'Sousse', 'Sousse', '45 Avenue Habib Thameur, Sousse', 'shipped', 'paid', 'cod', [[p3, 1]]);
     const o3 = await mkOrder(dropshipper_id, b_id, 'Rami T', '+216 22 010 303', 'Sfax', 'Sfax', '8 Boulevard, Sfax', 'confirmed', 'unpaid', 'cod', [[p5, 2], [p6, 1]]);
     await mkOrder(dropshipper_id, a_id, 'Nadia M', '+216 22 010 404', 'Nabeul', 'Hammamet', '23 Avenue Habib Bourguiba, Hammamet', 'pending', 'unpaid', 'cod', [[p7, 1]]);
 
@@ -1713,6 +1762,16 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
   for (const stmt of SCHEMA.split(';').map((s) => s.trim()).filter(Boolean)) {
     await pool.query(stmt);
   }
+  await pool.query(`CREATE TABLE IF NOT EXISTS order_payment_attempts (
+    order_id INT NOT NULL PRIMARY KEY,
+    payment_id VARCHAR(100) NOT NULL UNIQUE,
+    tracking_id VARCHAR(120) NOT NULL,
+    amount_millimes BIGINT NOT NULL,
+    link VARCHAR(1000) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_order_payment_attempt_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
   const backfillOrg = async () => {
     const [cnt] = await all<Row<{ n: number }>>(pool, 'SELECT COUNT(*) AS n FROM seller_organizations');
@@ -2043,21 +2102,30 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
   }
 
   const roleColumn = await all<Row<{ COLUMN_TYPE: string }>>(pool, 'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?', [cfg.database, 'users', 'role']);
-  if (roleColumn[0]?.COLUMN_TYPE.includes("'dropshipper'") || roleColumn[0]?.COLUMN_TYPE.includes("'fournisseur'") || roleColumn[0]?.COLUMN_TYPE.includes("'chef'")) {
-    await pool.query("ALTER TABLE users MODIFY COLUMN role ENUM('admin','chef','support','dropshipper','fournisseur','stocking','confirmateur','customer','seller') NOT NULL DEFAULT 'customer'");
-    await pool.query("UPDATE users SET role = CASE WHEN role IN ('chef','support','stocking','confirmateur') THEN 'admin' WHEN role = 'dropshipper' THEN 'customer' WHEN role = 'fournisseur' THEN 'seller' ELSE role END");
-    await pool.query("ALTER TABLE users MODIFY COLUMN role ENUM('admin','customer','seller') NOT NULL DEFAULT 'customer'");
+  const supportedRoleValues = ["'admin'", "'support'", "'chef'", "'stocking'", "'confirmateur'", "'dropshipper'", "'fournisseur'", "'customer'", "'seller'"];
+  if (roleColumn[0] && supportedRoleValues.some((role) => !roleColumn[0].COLUMN_TYPE.includes(role))) {
+    // Expand the enum without rewriting existing account roles. Older startup
+    // code collapsed staff roles into admin, which could not be reversed.
+    await pool.query("ALTER TABLE users MODIFY COLUMN role ENUM('admin','support','chef','stocking','confirmateur','dropshipper','fournisseur','customer','seller') NOT NULL DEFAULT 'customer'");
   }
   const payoutRoleColumn = await all<Row<{ COLUMN_TYPE: string }>>(pool, 'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?', [cfg.database, 'payouts', 'recipient_role']);
-  if (payoutRoleColumn[0]?.COLUMN_TYPE.includes("'dropshipper'") || payoutRoleColumn[0]?.COLUMN_TYPE.includes("'fournisseur'")) {
-    await pool.query("ALTER TABLE payouts MODIFY COLUMN recipient_role ENUM('fournisseur','dropshipper','customer','seller') NOT NULL");
-    await pool.query("UPDATE payouts SET recipient_role = CASE WHEN recipient_role = 'fournisseur' THEN 'seller' WHEN recipient_role = 'dropshipper' THEN 'customer' ELSE recipient_role END");
-    await pool.query("ALTER TABLE payouts MODIFY COLUMN recipient_role ENUM('seller','customer') NOT NULL");
+  const supportedPayoutRoleValues = ["'seller'", "'customer'", "'dropshipper'", "'fournisseur'"];
+  if (payoutRoleColumn[0] && supportedPayoutRoleValues.some((role) => !payoutRoleColumn[0].COLUMN_TYPE.includes(role))) {
+    // Keep both historic and Shopora names so upgrades preserve payout ownership.
+    await pool.query("ALTER TABLE payouts MODIFY COLUMN recipient_role ENUM('seller','customer','fournisseur','dropshipper') NOT NULL");
   }
   const userCols = await all<Row<{ COLUMN_NAME: string }>>(pool, 'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?', [cfg.database, 'users']);
   const userColSet = new Set(userCols.map((c) => c.COLUMN_NAME));
   if (!userColSet.has('cin')) {
     await pool.query('ALTER TABLE users ADD COLUMN cin VARCHAR(50) NULL AFTER photo');
+  }
+  if (!userColSet.has('balance')) {
+    await pool.query('ALTER TABLE users ADD COLUMN balance DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER cin');
+    await pool.query("UPDATE users SET balance = 100 WHERE role IN ('customer','dropshipper')");
+  }
+  const settlementColumns = await all<Row<{ COLUMN_NAME: string }>>(pool, 'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?', [cfg.database, 'orders']);
+  if (!settlementColumns.some((c) => c.COLUMN_NAME === 'settled_at')) {
+    await pool.query('ALTER TABLE orders ADD COLUMN settled_at TIMESTAMP NULL AFTER returned_at');
   }
 
   const notifCols = await all<Row<{ COLUMN_NAME: string }>>(pool, 'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?', [cfg.database, 'notifications']);
@@ -2119,7 +2187,7 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
 
   await seed();
 
-  const mapUser = (r: Row<Record<string, unknown>>): DbUser => ({ id: Number(r.id), name: r.name as string, email: r.email as string, password_hash: r.password_hash as string, role: r.role as DbUser['role'], photo: (r.photo as string) ?? null, cin: (r.cin as string) ?? null, created_at: (r.created_at as Date).toISOString() });
+  const mapUser = (r: Row<Record<string, unknown>>): DbUser => ({ id: Number(r.id), name: r.name as string, email: r.email as string, password_hash: r.password_hash as string, role: r.role as DbUser['role'], photo: (r.photo as string) ?? null, cin: (r.cin as string) ?? null, balance: Number(r.balance ?? 0), created_at: (r.created_at as Date).toISOString() });
 
   async function loadOrder(id: number, conn?: Queryable): Promise<OrderFull | null> {
     const db = conn ?? pool;
@@ -2276,14 +2344,15 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
       return r ? mapUser(r as Row<Record<string, unknown>>) : null;
     },
     async createUser(input: CreateUserInput) {
-      const [r] = await pool.execute('INSERT INTO users (name, email, password_hash, role, photo, cin) VALUES (?,?,?,?,?,?)', [input.name, input.email, input.password_hash, input.role, input.photo ?? null, input.cin ?? null]);
+      const initialBalance = input.balance ?? (input.role === 'dropshipper' || input.role === 'customer' ? 100 : 0);
+      const [r] = await pool.execute('INSERT INTO users (name, email, password_hash, role, photo, cin, balance) VALUES (?,?,?,?,?,?,?)', [input.name, input.email, input.password_hash, input.role, input.photo ?? null, input.cin ?? null, initialBalance]);
       const id = (r as mysql.ResultSetHeader).insertId;
       const created = await store.findUserById(id);
       return created!;
     },
     async listUsers() {
-      const rows = await all<Row<Record<string, unknown>>>(pool, 'SELECT id, name, email, role, photo, cin, created_at FROM users ORDER BY id ASC');
-      return rows.map((r) => ({ id: Number(r.id), name: r.name as string, email: r.email as string, role: r.role as DbUser['role'], photo: (r.photo as string) ?? null, cin: (r.cin as string) ?? null, created_at: (r.created_at as Date).toISOString() }));
+      const rows = await all<Row<Record<string, unknown>>>(pool, 'SELECT id, name, email, role, photo, cin, balance, created_at FROM users ORDER BY id ASC');
+      return rows.map((r) => ({ id: Number(r.id), name: r.name as string, email: r.email as string, role: r.role as DbUser['role'], photo: (r.photo as string) ?? null, cin: (r.cin as string) ?? null, balance: Number(r.balance ?? 0), created_at: (r.created_at as Date).toISOString() }));
     },
     async updateUser(id, patch) {
       const sets: string[] = [];
@@ -2293,6 +2362,157 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
       if (patch.photo !== undefined) { sets.push('photo = ?'); vals.push(patch.photo); }
       if (patch.cin !== undefined) { sets.push('cin = ?'); vals.push(patch.cin ?? null); }
       if (sets.length) await pool.execute(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, [...vals, id]);
+    },
+    async debitUserBalance(id, amount) {
+      if (!Number.isFinite(amount) || amount < 0) throw new InvalidStateError('Invalid debit amount');
+      const [result] = await pool.execute('UPDATE users SET balance = ROUND(balance - ?, 2) WHERE id = ? AND balance >= ?', [amount, id, amount]);
+      if ((result as mysql.ResultSetHeader).affectedRows === 0) return null;
+      const rows = await all<Row<{ balance: number }>>(pool, 'SELECT balance FROM users WHERE id = ?', [id]);
+      return rows.length ? Number(rows[0].balance) : null;
+    },
+    async listReservations({ role, userId }) {
+      let sql = `SELECT r.*, p.name AS product_name, p.image_url AS product_image, ds.name AS dropshipper_name, fs.name AS fournisseur_name,
+        f.status AS refill_status, f.demanded_qty, f.got_qty, f.available_qty
+        FROM reservations r JOIN products p ON p.id=r.product_id JOIN users ds ON ds.id=r.dropshipper_id JOIN users fs ON fs.id=r.fournisseur_id
+        LEFT JOIN reservation_refills f ON f.reservation_id=r.id`;
+      const params: unknown[] = [];
+      if (role === 'dropshipper') { sql += ' WHERE r.dropshipper_id=?'; params.push(userId); }
+      else if (role === 'fournisseur') { sql += ' WHERE r.fournisseur_id=?'; params.push(userId); }
+      sql += ' ORDER BY r.id DESC';
+      const rows = await all<Row<Record<string, unknown>>>(pool, sql, params);
+      return rows.map((r) => ({ id: Number(r.id), dropshipper_id: Number(r.dropshipper_id), dropshipper_name: String(r.dropshipper_name), fournisseur_id: Number(r.fournisseur_id), fournisseur_name: String(r.fournisseur_name), product_id: Number(r.product_id), product_name: String(r.product_name), product_image: (r.product_image as string) ?? null, quantity: Number(r.quantity), price: Number(r.price), deposit: Number(r.deposit), status: r.status as Reservation['status'], remaining: Number(r.remaining), refill_status: (r.refill_status as Reservation['refill_status']) ?? 'none', demanded_qty: Number(r.demanded_qty ?? 0), got_qty: Number(r.got_qty ?? 0), available_qty: Number(r.available_qty ?? 0), free_qty: Number(r.available_qty ?? r.remaining), created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at), accepted_at: r.accepted_at ? String(r.accepted_at) : null, resolved_at: r.resolved_at ? String(r.resolved_at) : null }));
+    },
+    async createReservation(input: CreateReservationInput) {
+      const productRows = await all<Row<Record<string, unknown>>>(pool, 'SELECT id,name,stock,price,is_active,fournisseur_id,image_url FROM products WHERE id=?', [input.product_id]);
+      const product = productRows[0];
+      if (!product || !b(product.is_active)) throw new NotFoundError('Product not available');
+      const quantity = Math.floor(input.quantity);
+      if (quantity < 1) throw new InvalidStateError('Quantity must be at least one');
+      const [heldRows, userRows] = await Promise.all([
+        all<Row<{ held: number }>>(pool, "SELECT COALESCE(SUM(remaining),0) held FROM reservations WHERE product_id=? AND status='accepted'", [input.product_id]),
+        all<Row<{ balance: number }>>(pool, 'SELECT balance FROM users WHERE id=? AND role=\'dropshipper\'', [input.dropshipper_id]),
+      ]);
+      const available = Math.max(0, Number(product.stock) - Number(heldRows[0]?.held ?? 0));
+      if (quantity > available) throw new StockError(`Only ${available} units are available.`);
+      if (!userRows.length) throw new NotFoundError('Dropshipper not found');
+      const deposit = round2(quantity * Number(product.price) * 0.4);
+      const balance = Number(userRows[0].balance);
+      if (balance - deposit <= 100) throw new InvalidStateError('Balance must remain above 100 DT after the deposit.');
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const [lockedProducts] = await conn.query<RowDataPacket[]>('SELECT stock,is_active FROM products WHERE id=? FOR UPDATE', [input.product_id]);
+        const lockedProduct = lockedProducts[0] as { stock: number; is_active: number } | undefined;
+        const [lockedHolds] = await conn.query<RowDataPacket[]>("SELECT COALESCE(SUM(remaining),0) AS held FROM reservations WHERE product_id=? AND status='accepted'", [input.product_id]);
+        if (!lockedProduct || !b(lockedProduct.is_active) || quantity > Math.max(0, Number(lockedProduct.stock) - Number((lockedHolds[0] as { held: number }).held ?? 0))) throw new StockError('The product no longer has enough reservable stock.');
+        const [debitResult] = await conn.execute('UPDATE users SET balance=ROUND(balance-?,2) WHERE id=? AND balance-?>100', [deposit, input.dropshipper_id, deposit]);
+        if ((debitResult as mysql.ResultSetHeader).affectedRows === 0) throw new InvalidStateError('Balance must remain above 100 DT after the deposit.');
+        const [ins] = await conn.execute('INSERT INTO reservations (dropshipper_id,fournisseur_id,product_id,quantity,price,deposit,status,remaining) VALUES (?,?,?,?,?,?,\'pending\',?)', [input.dropshipper_id, Number(product.fournisseur_id), input.product_id, quantity, Number(product.price), deposit, quantity]);
+        await conn.commit();
+        const id = (ins as mysql.ResultSetHeader).insertId;
+        const reservation = (await this.listReservations({ role: 'admin', userId: 0 })).find((r) => r.id === id)!;
+        return { reservation, balance: round2(balance - deposit) };
+      } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    },
+    async updateReservationPrice(id, price, dropshipperId) {
+      const rows = await all<Row<Record<string, unknown>>>(pool, 'SELECT * FROM reservations WHERE id=? AND (? IS NULL OR dropshipper_id=?)', [id, dropshipperId ?? null, dropshipperId ?? null]);
+      const r = rows[0];
+      if (!r) throw new NotFoundError('Reservation not found');
+      if (r.status !== 'pending') throw new InvalidStateError('Only pending reservations can be re-priced');
+      const deposit = round2(Number(r.quantity) * price * 0.4), delta = round2(deposit - Number(r.deposit));
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const [balRows] = await conn.query<RowDataPacket[]>('SELECT balance FROM users WHERE id=? FOR UPDATE', [r.dropshipper_id]);
+        const balance = Number((balRows[0] as { balance: number }).balance);
+        if (balance - delta <= 100) throw new InvalidStateError('Balance must remain above 100 DT after the deposit.');
+        await conn.execute('UPDATE users SET balance=balance-? WHERE id=?', [delta, r.dropshipper_id]);
+        await conn.execute('UPDATE reservations SET price=?,deposit=? WHERE id=?', [price, deposit, id]);
+        await conn.commit();
+        const reservation = (await this.listReservations({ role: 'admin', userId: 0 })).find((x) => x.id === id)!;
+        return { reservation, balance: round2(balance - delta) };
+      } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    },
+    async resolveReservation(id, status, fournisseurId) {
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const rows = await all<Row<Record<string, unknown>>>(conn, 'SELECT * FROM reservations WHERE id=? AND (? IS NULL OR fournisseur_id=?) FOR UPDATE', [id, fournisseurId ?? null, fournisseurId ?? null]);
+        const r = rows[0];
+        if (!r) throw new NotFoundError('Reservation not found');
+        if (r.status !== 'pending') throw new InvalidStateError('Only pending reservations can be resolved');
+        if (status === 'accepted') {
+          const [stocks] = await conn.query<RowDataPacket[]>('SELECT stock FROM products WHERE id=? FOR UPDATE', [r.product_id]);
+          const [held] = await conn.query<RowDataPacket[]>("SELECT COALESCE(SUM(remaining),0) AS total FROM reservations WHERE product_id=? AND status='accepted'", [r.product_id]);
+          if (Number(r.quantity) > Math.max(0, Number((stocks[0] as { stock: number } | undefined)?.stock ?? 0) - Number((held[0] as { total: number }).total ?? 0))) throw new StockError('Not enough supplier stock to accept this reservation.');
+        } else {
+          await conn.execute('UPDATE users SET balance=ROUND(balance+?,2) WHERE id=?', [r.deposit, r.dropshipper_id]);
+        }
+        await conn.execute('UPDATE reservations SET status=?,accepted_at=IF(?=\'accepted\',NOW(),NULL),resolved_at=NOW() WHERE id=?', [status, status, id]);
+        await conn.commit();
+        return (await this.listReservations({ role: 'admin', userId: 0 })).find((x) => x.id === id)!;
+      } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    },
+    async cancelReservation(id, dropshipperId) {
+      const rows = await all<Row<Record<string, unknown>>>(pool, 'SELECT * FROM reservations WHERE id=? AND (? IS NULL OR dropshipper_id=?)', [id, dropshipperId ?? null, dropshipperId ?? null]);
+      const r = rows[0];
+      if (!r) throw new NotFoundError('Reservation not found');
+      if (r.status !== 'pending') throw new InvalidStateError('Only pending reservations can be cancelled');
+      await pool.execute("UPDATE users SET balance=balance+? WHERE id=?", [r.deposit, r.dropshipper_id]);
+      await pool.execute("UPDATE reservations SET status='cancelled',resolved_at=NOW() WHERE id=?", [id]);
+      return (await this.listReservations({ role: 'admin', userId: 0 })).find((x) => x.id === id)!;
+    },
+    async getReservationRefillPickupList(): Promise<ReservationRefillPickupListResult> {
+      const rows = await all<Row<Record<string, unknown>>>(pool, `SELECT r.id AS reservation_id,r.remaining,r.price,r.created_at,
+        ds.name AS dropshipper_name,p.id AS product_id,p.name AS product_name,p.image_url,p.stock AS supplier_stock,
+        fs.id AS supplier_id,fs.name AS supplier_name,
+        (SELECT COALESCE(SUM(x.quantity),0) FROM reservations x WHERE x.product_id=p.id AND x.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)) AS period_consumption,
+        (SELECT COALESCE(SUM(x.quantity),0) FROM reservations x WHERE x.product_id=p.id AND x.status='pending') AS non_confirmed
+        FROM reservations r JOIN users ds ON ds.id=r.dropshipper_id JOIN products p ON p.id=r.product_id JOIN users fs ON fs.id=r.fournisseur_id
+        LEFT JOIN reservation_refills f ON f.reservation_id=r.id WHERE r.status='accepted' AND f.id IS NULL ORDER BY fs.id,p.id,r.id`);
+      const groups = new Map<number, { supplier: string; ids: Set<number>; items: ReservationRefillPickupItem[] }>();
+      for (const r of rows) {
+        const supplierId = Number(r.supplier_id);
+        const group = groups.get(supplierId) ?? { supplier: String(r.supplier_name ?? ''), ids: new Set<number>(), items: [] };
+        const remaining = Number(r.remaining ?? 0);
+        group.ids.add(Number(r.reservation_id));
+        group.items.push({ reservation_id: Number(r.reservation_id), dropshipper_name: String(r.dropshipper_name ?? ''),
+          product_id: Number(r.product_id), product_name: String(r.product_name ?? ''), image_url: (r.image_url as string) ?? null,
+          expected_incoming: remaining, supplier_stock: Number(r.supplier_stock ?? 0), our_stock: 0,
+          period_consumption: Number(r.period_consumption ?? 0), qty_non_confirmed: Number(r.non_confirmed ?? 0),
+          qty_required_orders: remaining, qty_to_request: remaining, unit_price: Number(r.price ?? 0) });
+        groups.set(supplierId, group);
+      }
+      return { suppliers: [...groups.values()].map((g) => ({ supplier: g.supplier, reservation_count: g.ids.size,
+        total_qty_to_request: g.items.reduce((sum, item) => sum + item.qty_to_request, 0), items: g.items })) };
+    },
+    async createReservationRefill(reservationId, demandedQty) {
+      const rows = await all<Row<{ product_id: number; remaining: number; status: string }>>(pool, 'SELECT product_id,remaining,status FROM reservations WHERE id=?', [reservationId]);
+      const r = rows[0]; if (!r) throw new NotFoundError('Reservation not found');
+      if (r.status !== 'accepted') throw new InvalidStateError('Reservation must be accepted');
+      await pool.execute("INSERT INTO reservation_refills (reservation_id,product_id,demanded_qty,status) VALUES (?,?,?,'requested') ON DUPLICATE KEY UPDATE demanded_qty=VALUES(demanded_qty),status='requested'", [reservationId, r.product_id, demandedQty ?? r.remaining]);
+      const out = await all<Row<Record<string, unknown>>>(pool, 'SELECT * FROM reservation_refills WHERE reservation_id=?', [reservationId]);
+      return mapReservationRefill(out[0]);
+    },
+    async updateReservationRefill(reservationId, gotQty) {
+      const rows = await all<Row<{ id: number; got_qty: number; available_qty: number; product_id: number; remaining: number; status: string }>>(pool, 'SELECT f.*,r.product_id,r.remaining,r.status FROM reservation_refills f JOIN reservations r ON r.id=f.reservation_id WHERE f.reservation_id=?', [reservationId]);
+      const prior = rows[0]; if (!prior) throw new NotFoundError('Refill request not found');
+      if (prior.status !== 'accepted') throw new InvalidStateError('Only accepted reservations can be refilled');
+      const scanned = Math.max(0, prior.got_qty - prior.available_qty), got = Math.max(scanned, Math.floor(gotQty));
+      await pool.execute("UPDATE reservation_refills SET got_qty=?,available_qty=?,status='received',received_at=NOW() WHERE id=?", [got, got - scanned, prior.id]);
+      const out = await all<Row<Record<string, unknown>>>(pool, 'SELECT * FROM reservation_refills WHERE id=?', [prior.id]);
+      return mapReservationRefill(out[0]);
+    },
+    async scanReservationRefill(reservationId) {
+      const [result] = await pool.execute("UPDATE reservation_refills SET available_qty=available_qty-1 WHERE reservation_id=? AND status='received' AND available_qty>0", [reservationId]);
+      if ((result as mysql.ResultSetHeader).affectedRows === 0) throw new StockError('No available refill quantity.');
+      const out = await all<Row<Record<string, unknown>>>(pool, 'SELECT * FROM reservation_refills WHERE reservation_id=?', [reservationId]);
+      return mapReservationRefill(out[0]);
+    },
+    async restoreReservedUnitsForItem(item) {
+      let left = Math.max(0, item.reserved_qty ?? 0);
+      const rows = await all<Row<{ id: number; quantity: number; remaining: number }>>(pool, "SELECT id,quantity,remaining FROM reservations WHERE dropshipper_id=? AND product_id=? AND status='accepted' ORDER BY id", [item.dropshipper_id, item.product_id]);
+      for (const r of rows) { const add = Math.min(left, Number(r.quantity) - Number(r.remaining)); if (add > 0) { await pool.execute('UPDATE reservations SET remaining=remaining+? WHERE id=?', [add, r.id]); left -= add; } if (left <= 0) break; }
     },
     async deleteUser(id) {
       await pool.execute('DELETE FROM users WHERE id = ?', [id]);
@@ -2417,13 +2637,13 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
       await this.finalizeAutoDeliveries();
       let sql = 'SELECT DISTINCT o.id FROM orders o WHERE 1=1';
       const params: unknown[] = [];
-      if (opts.role === 'customer') { sql += ' AND o.dropshipper_id = ?'; params.push(opts.userId); }
-      if (opts.role === 'seller') {
+      if (isCustomerRole(opts.role)) { sql += ' AND o.dropshipper_id = ?'; params.push(opts.userId); }
+      if (isSupplierRole(opts.role)) {
         sql += ' AND EXISTS (SELECT 1 FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = o.id AND p.fournisseur_id = ?)';
         params.push(opts.userId);
       }
-      if (opts.role !== 'customer' && opts.role !== 'admin') {
-        if (opts.role === 'seller') {
+      if (!isCustomerRole(opts.role) && opts.role !== 'admin') {
+        if (isSupplierRole(opts.role)) {
           sql += " AND (o.status <> 'draft' OR o.dropshipper_id = ?)";
           params.push(opts.userId);
         } else {
@@ -2454,6 +2674,13 @@ export async function createMysqlStore(cfg: MysqlConfig): Promise<Store> {
         WHERE status = 'shipped' AND shipped_at IS NOT NULL AND shipped_at < NOW() - INTERVAL 12 HOUR
       `);
       return (r as mysql.ResultSetHeader).affectedRows ?? 0;
+    },
+    async settleDeliveredProfits() {
+      const [result] = await pool.execute(`UPDATE orders o
+        JOIN users u ON u.id=o.dropshipper_id AND u.role='dropshipper'
+        SET u.balance=ROUND(u.balance + o.profit + o.total, 2), o.settled_at=NOW()
+        WHERE o.status='delivered' AND o.delivered_at <= NOW() - INTERVAL 3 DAY AND o.settled_at IS NULL`);
+      return (result as mysql.ResultSetHeader).affectedRows ?? 0;
     },
     async findOrderByCode(code: string) {
       const c = String(code).trim();
@@ -2674,6 +2901,25 @@ for (const it of input.items) {
       if (method) await pool.execute('UPDATE orders SET payment_status = ?, payment_method = ? WHERE id = ?', [payment_status, method, id]);
       else await pool.execute('UPDATE orders SET payment_status = ? WHERE id = ?', [payment_status, id]);
     },
+    async saveOrderPaymentAttempt(attempt: OrderPaymentAttempt) {
+      await pool.execute(
+        `INSERT INTO order_payment_attempts (order_id, payment_id, tracking_id, amount_millimes, link, status)
+         VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE payment_id = VALUES(payment_id), tracking_id = VALUES(tracking_id),
+         amount_millimes = VALUES(amount_millimes), link = VALUES(link), status = VALUES(status)`,
+        [attempt.order_id, attempt.payment_id, attempt.tracking_id, attempt.amount_millimes, attempt.link, attempt.status],
+      );
+    },
+    async getOrderPaymentAttempt(orderId) {
+      const r = await row<Row<Record<string, unknown>>>(pool, 'SELECT * FROM order_payment_attempts WHERE order_id = ?', [orderId]);
+      return r ? { order_id: Number(r.order_id), payment_id: String(r.payment_id), tracking_id: String(r.tracking_id), amount_millimes: Number(r.amount_millimes), link: String(r.link), status: String(r.status) as OnlinePaymentStatus } : null;
+    },
+    async getOrderPaymentAttemptByPaymentId(paymentId) {
+      const r = await row<Row<Record<string, unknown>>>(pool, 'SELECT * FROM order_payment_attempts WHERE payment_id = ?', [paymentId]);
+      return r ? { order_id: Number(r.order_id), payment_id: String(r.payment_id), tracking_id: String(r.tracking_id), amount_millimes: Number(r.amount_millimes), link: String(r.link), status: String(r.status) as OnlinePaymentStatus } : null;
+    },
+    async updateOrderPaymentAttemptStatus(paymentId, status: OnlinePaymentStatus) {
+      await pool.execute('UPDATE order_payment_attempts SET status = ? WHERE payment_id = ?', [status, paymentId]);
+    },
     async addTracking(order_id, data) {
       await pool.execute('INSERT INTO tracks (order_id, carrier, tracking_number, status, detail) VALUES (?,?,?,?,?)', [order_id, data.carrier, data.tracking_number, data.status, data.detail ?? null]);
       const low = data.status.toLowerCase();
@@ -2760,8 +3006,8 @@ for (const it of input.items) {
     async listReturnRequests(opts) {
       let sql = 'SELECT r.*, o.order_number, o.governorate, o.city, u.name AS dropshipper_name FROM return_requests r JOIN orders o ON o.id = r.order_id JOIN users u ON u.id = r.dropshipper_id';
       const params: unknown[] = [];
-      if (opts.role === 'customer') { sql += ' WHERE r.dropshipper_id = ?'; params.push(opts.userId); }
-      else if (opts.role === 'seller') { sql += ' WHERE EXISTS (SELECT 1 FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = r.order_id AND p.fournisseur_id = ?)'; params.push(opts.userId); }
+      if (isCustomerRole(opts.role)) { sql += ' WHERE r.dropshipper_id = ?'; params.push(opts.userId); }
+      else if (isSupplierRole(opts.role)) { sql += ' WHERE EXISTS (SELECT 1 FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = r.order_id AND p.fournisseur_id = ?)'; params.push(opts.userId); }
       sql += ' ORDER BY r.id DESC';
       const rows = await all<Row<Record<string, unknown>>>(pool, sql, params);
       return rows.map((r): ReturnRequest => ({
@@ -2801,7 +3047,7 @@ for (const it of input.items) {
       }));
     },
     async listRetourOrdersForChef(excludeOrderIds) {
-      let sql = `SELECT o.id AS order_id, o.order_number, o.created_at, o.governorate, o.city, o.delivery_company,
+      let sql = `SELECT o.id AS order_id, o.order_number, o.dropshipper_id, o.created_at, o.governorate, o.city, o.delivery_company,
                         ds.name AS dropshipper_name
                  FROM orders o
                  LEFT JOIN users ds ON ds.id = o.dropshipper_id
@@ -2834,6 +3080,7 @@ for (const it of input.items) {
       return orderRows.map((r) => ({
         order_id: Number(r.order_id),
         order_number: String(r.order_number ?? ''),
+        dropshipper_id: Number(r.dropshipper_id),
         dropshipper_name: (r.dropshipper_name as string) ?? null,
         governorate: (r.governorate as string) ?? null,
         city: (r.city as string) ?? null,
@@ -3404,11 +3651,12 @@ for (const it of input.items) {
       const insertId = Number((ins as { insertId?: number }).insertId ?? 0);
       const created = await row<Row<Record<string, unknown>>>(pool, 'SELECT * FROM supplier_organizations WHERE id = ?', [insertId]);
       if (!created) throw new Error('Supplier organization creation failed');
-      await pool.execute('INSERT INTO users (name, email, password_hash, role) VALUES (?,?,?,?)', [
+      await pool.execute('INSERT INTO users (name, email, password_hash, role, balance) VALUES (?,?,?,?,?)', [
         `${input.first_name} ${input.last_name}`.trim(),
         email,
         passwordHash,
         'seller',
+        0,
       ]);
       return rowToSupplierOrg(created);
     },
@@ -4736,10 +4984,10 @@ async findSupplierOrgByEmail(email: string): Promise<{ allow_marketplace: boolea
           (SELECT COUNT(DISTINCT o.id) FROM orders o JOIN order_items oi ON oi.order_id = o.id JOIN products p ON p.id = oi.product_id WHERE p.fournisseur_id = u.id AND o.status <> 'cancelled') AS total_orders,
           (SELECT ROUND(COALESCE(SUM(p.price * oi.quantity), 0), 2) FROM orders o JOIN order_items oi ON oi.order_id = o.id JOIN products p ON p.id = oi.product_id WHERE p.fournisseur_id = u.id AND o.status = 'delivered') AS earned
         FROM users u
-        WHERE u.role = 'seller'
+        WHERE u.role IN ('seller','fournisseur')
         ORDER BY earned DESC
       `);
-      const payoutRows = await all<Row<Record<string, unknown>>>(pool, "SELECT recipient_id, COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS paid FROM payouts WHERE recipient_role = 'seller' GROUP BY recipient_id");
+      const payoutRows = await all<Row<Record<string, unknown>>>(pool, "SELECT recipient_id, COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS paid FROM payouts WHERE recipient_role IN ('seller','fournisseur') GROUP BY recipient_id");
       const paidMap = new Map<number, number>(payoutRows.map((p) => [Number(p.recipient_id), Number(p.paid)]));
       return rows.map((r) => {
         const paid = paidMap.get(Number(r.id)) ?? 0;
@@ -4765,11 +5013,11 @@ async findSupplierOrgByEmail(email: string): Promise<{ allow_marketplace: boolea
           COALESCE(SUM(CASE WHEN o.status = 'delivered' THEN o.profit ELSE 0 END), 0) AS profit
         FROM users u
         LEFT JOIN orders o ON o.dropshipper_id = u.id
-        WHERE u.role = 'customer'
+        WHERE u.role IN ('customer','dropshipper')
         GROUP BY u.id, u.name, u.email
         ORDER BY profit DESC
       `);
-      const payoutRows = await all<Row<Record<string, unknown>>>(pool, "SELECT recipient_id, COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS paid FROM payouts WHERE recipient_role = 'customer' GROUP BY recipient_id");
+      const payoutRows = await all<Row<Record<string, unknown>>>(pool, "SELECT recipient_id, COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS paid FROM payouts WHERE recipient_role IN ('customer','dropshipper') GROUP BY recipient_id");
       const paidMap = new Map<number, number>(payoutRows.map((p) => [Number(p.recipient_id), Number(p.paid)]));
       return rows.map((r) => {
         const paid = paidMap.get(Number(r.id)) ?? 0;
@@ -4782,7 +5030,8 @@ async findSupplierOrgByEmail(email: string): Promise<{ allow_marketplace: boolea
       return rows.map((p) => rowToPayout(p));
     },
     async listPayoutsForRecipient(recipientId, recipientRole) {
-      const rows = await all<Row<Record<string, unknown>>>(pool, 'SELECT p.*, u.name AS recipient_name FROM payouts p JOIN users u ON u.id = p.recipient_id WHERE p.recipient_id = ? AND p.recipient_role = ? ORDER BY p.id DESC', [recipientId, recipientRole]);
+      const roles = recipientRole === 'customer' || recipientRole === 'dropshipper' ? ['customer', 'dropshipper'] : ['seller', 'fournisseur'];
+      const rows = await all<Row<Record<string, unknown>>>(pool, 'SELECT p.*, u.name AS recipient_name FROM payouts p JOIN users u ON u.id = p.recipient_id WHERE p.recipient_id = ? AND p.recipient_role IN (?, ?) ORDER BY p.id DESC', [recipientId, roles[0], roles[1]]);
       return rows.map((p) => rowToPayout(p));
     },
     async getPayoutByFlouciPaymentId(paymentId) {
@@ -5338,10 +5587,10 @@ async findSupplierOrgByEmail(email: string): Promise<{ allow_marketplace: boolea
     async findUserByApiKey(plaintext) {
       const rows = await all<Row<Record<string, unknown>>>(pool, "SELECT id, user_id FROM api_keys WHERE token_hash = ? AND status = 'active'", [sha256(plaintext)]);
       if (!rows[0]) return null;
-      const u = await row<Row<Record<string, unknown>>>(pool, 'SELECT id, name, email, role, photo, cin, created_at FROM users WHERE id = ?', [Number(rows[0].user_id)]);
+      const u = await row<Row<Record<string, unknown>>>(pool, 'SELECT id, name, email, role, photo, cin, balance, created_at FROM users WHERE id = ?', [Number(rows[0].user_id)]);
       if (!u) return null;
       return {
-        user: { id: Number(u.id), name: u.name as string, email: u.email as string, role: u.role as DbUser['role'], photo: (u.photo as string) ?? null, cin: (u.cin as string) ?? null, created_at: (u.created_at as Date).toISOString() },
+        user: { id: Number(u.id), name: u.name as string, email: u.email as string, role: u.role as DbUser['role'], photo: (u.photo as string) ?? null, cin: (u.cin as string) ?? null, balance: Number(u.balance ?? 0), created_at: (u.created_at as Date).toISOString() },
         keyId: Number(rows[0].id),
       };
     },

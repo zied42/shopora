@@ -22,11 +22,16 @@ curl http://localhost:5000/api/products \
 
 | Role | Intended access |
 |---|---|
-| `customer` | Catalog, own orders, own returns, support, profile, and customer chat. |
-| `admin` | Store administration, all users and orders, inventory, support replies, and manual payment reconciliation. |
-| `seller` | Legacy role still present in some product/order/return/chat route checks. New seller registration and login are disabled. |
+| `customer` / `dropshipper` | Marketplace, own orders and returns, reservations, payouts, integrations, and API access. |
+| `seller` / `fournisseur` | Own products, stock, reservations, fulfillment, shipments, and supplier support. |
+| `admin` | Store administration, all users and orders, inventory, support, staff, and integrations. |
+| `chef` | Operational dashboards, orders, shipments, returns, products, inventory, and reconciliation. |
+| `support` | Support inbox, tickets, services, order assistance, and partner records. |
+| `stocking` | Warehouse inventory, picks, reservations, shipments, and returns. |
+| `confirmateur` | Pending orders and confirmation dashboards. |
+| `seller` | Shopora supplier alias retained for existing accounts. |
 
-The active application is intended to have customer and admin accounts. Existing seller-specific API branches have not all been removed yet; treat them as legacy functionality, not as an advertised role or a production-ready supplier portal.
+Public registration still creates customer accounts only. Admin-created accounts can use the operational roles. Server endpoints enforce role checks and data ownership; the browser route guards are for navigation and do not replace API authorization.
 
 ## Authentication
 
@@ -48,7 +53,7 @@ Success: `201` with `{ "token": "...", "user": { "id", "name", "email", "role", 
 
 Request: `{ "email": "sam@example.com", "password": "a-long-password" }`.
 
-Returns the same token/user shape as registration. Only `admin` and `customer` users may log in. Invalid credentials return `401`; an account with a disallowed legacy role returns `403`. Limited to 10 attempts per IP/email per 15 minutes (in-memory limiter).
+Returns the same token/user shape as registration for supported customer, supplier, or staff roles. Invalid credentials return `401`; disabled or unsupported accounts return `403`. Limited to 10 attempts per IP/email per 15 minutes (in-memory limiter).
 
 ### `GET /auth/me`
 
@@ -65,8 +70,8 @@ All `/users` routes require an authenticated admin.
 | Method and path | Description |
 |---|---|
 | `GET /users` | List public user records. Password hashes are not returned. |
-| `POST /users` | Create an admin or customer account. Requires `name`, `email`, `password` (minimum 12 characters), and `role`; optional `cin`. Returns `201` and the created public account. |
-| `PATCH /users/:id` | Update optional `name`, `role` (`admin` or `customer`), `photo`, and `cin`. Returns `{ "ok": true }`. |
+| `POST /users` | Create an account with an operational role. Requires `name`, `email`, `password` (minimum 12 characters), and `role`; optional `cin`. Returns `201` and the created public account. |
+| `PATCH /users/:id` | Update optional `name`, supported `role`, `photo`, and `cin`. Returns `{ "ok": true }`. |
 | `DELETE /users/:id` | Delete a user. An admin cannot delete their own account. Returns `{ "ok": true }`. |
 
 Duplicate email returns `409`. Admin-created accounts do not return a login token; the user must sign in separately.
@@ -86,12 +91,17 @@ All `/products` routes require authentication. Customer reads expose only active
 | `GET /products/:id` | Authenticated | Get product details. Customers receive a filtered representation. |
 | `GET /products/:id/suppliers` | Authenticated | List supplier offers for a product. |
 | `GET /products/:id/invoices` | Authenticated | Derived invoices for the current user’s delivered orders containing this product. |
-| `POST /products` | Admin or legacy seller | Create a product. |
-| `PATCH /products/:id` | Admin or owner legacy seller | Update product fields. Seller ownership is checked. |
-| `DELETE /products/:id` | Admin or owner legacy seller | Delete a product. Seller ownership is checked. |
-| `POST /products/:id/stock` | Admin or owner legacy seller | Replace stock with `{ "stock": 0 }` (non-negative integer). |
+| `POST /products` | Admin | Create a product. |
+| `PATCH /products/:id` | Admin | Update product fields. |
+| `DELETE /products/:id` | Admin | Delete a product. |
+| `POST /products/:id/stock` | Admin | Replace stock with `{ "stock": 0 }` (non-negative integer). |
 | `POST /products/:id/rating` | Customer | Add a 1–5 rating; optional `comment`. |
-| `GET /products/my-supplier-org` | Legacy seller | Return the current seller’s supplier organization, if present. |
+| `POST /products` | Admin or supplier | Create a product; suppliers can create only under their own account. |
+| `PATCH /products/:id` | Admin or owning supplier | Update a product; supplier ownership and visibility rules apply. |
+| `DELETE /products/:id` | Admin or owning supplier | Delete a product. |
+| `POST /products/:id/stock` | Admin or owning supplier | Set a product’s stock. |
+| `POST /products/:id/rating` | Customer or dropshipper | Add a 1–5 rating; optional `comment`. |
+| `GET /products/my-supplier-org` | Supplier | Return the current supplier’s organization, if present. |
 
 Product creation accepts `name`, `price`, and non-negative integer `stock`; optional fields include `description`, `cost_price`, `category`, `offers`, `retail_category`, dimensions/weight, `sku`, `barcode`, media URLs/arrays, keywords, specifications, and wholesale tiers. Categories are `dropshipping`, `wholesale`, `white_label`, and `fulfillment`.
 
@@ -102,16 +112,15 @@ All `/orders` routes require authentication. Customers can see and change only t
 | Method and path | Access | Description |
 |---|---|---|
 | `GET /orders` | Authenticated | List orders visible to the current user. |
-| `POST /orders` | Customer, admin, or legacy seller | Create an order; see request example below. Returns `201`. |
-| `GET /orders/:id` | Authenticated | Fetch one order. Non-admin access is checked against customer/supplier ownership. |
-| `PATCH /orders/:id/status` | Customer, admin, or legacy seller | Change order status subject to role and workflow rules. |
-| `PATCH /orders/:id/delivery-company` | Admin or legacy seller | Set `delivery_company` to a string or `null`. |
-| `DELETE /orders/:id` | Authenticated | Customers may delete only their own draft orders; admins have broader deletion access. |
-| `POST /orders/:id/pay` | Customer or admin | Payment processing is not configured. After validation and ownership checks, this endpoint returns `409`; it does not mark an order paid. |
-| `PATCH /orders/:id/payment` | Admin | Manually reconcile `status` (`paid` or `unpaid`) and optional `method` (`stripe`, `paypal`, or `cod`). This is an admin data change, not gateway verification. |
-| `POST /orders/:id/tracking` | Admin or legacy seller | Add tracking information: `carrier`, `tracking_number`, `status`, and optional `detail`. |
-| `GET /orders/confirmation-service/status` | Customer | Read legacy confirmation-service application status. |
-| `POST /orders/confirmation-service/apply` | Customer | Create a legacy confirmation-service application. |
+| `POST /orders` | Customer, dropshipper, supplier, support, or admin | Create an order; see request example below. Returns `201`. |
+| `GET /orders/:id` | Authenticated | Fetch an order visible to the current account; customer and supplier ownership is checked. |
+| `PATCH /orders/:id/status` | Customer, dropshipper, supplier, chef, or admin | Change order status subject to ownership, payment, and transition rules. |
+| `PATCH /orders/:id/delivery-company` | Admin, chef, stocking, or owning supplier | Set `delivery_company` to a string or `null`. |
+| `DELETE /orders/:id` | Authenticated | Customers may delete only their own drafts; suppliers and staff are restricted by role and order status. |
+| `PATCH /orders/:id/payment` | Admin | Manually reconcile a COD order as `paid` or `unpaid`; online orders require provider verification. |
+| `POST /orders/:id/tracking` | Admin or owning supplier | Add tracking information: `carrier`, `tracking_number`, `status`, and optional `detail`. |
+| `GET /orders/confirmation-service/status` | Customer or dropshipper | Read confirmation-service application status. |
+| `POST /orders/confirmation-service/apply` | Customer or dropshipper | Create a confirmation-service application. |
 
 Create-order example:
 
@@ -127,7 +136,7 @@ Create-order example:
 }
 ```
 
-Required fields: `customer_name`, `shipping_address` (at least 3 characters), `payment_method` (`stripe`, `paypal`, or `cod`), and a non-empty `items` array. Each item requires positive integer `product_id` and `quantity`. Optional legacy fields include `telephone2`, `offer_type`, `locality_id`, `commentaire`, `est_fragile`, `ouvrir_colis`, `nombre_article`, `nombre_echange`, and `dropshipper_id` (admin/seller use only). The customer flow cannot set `dropshipper_id` or `manual_price`.
+Required fields: `customer_name`, `shipping_address` (at least 3 characters), `payment_method` (`flouci` or `cod`), and a non-empty `items` array. Each item requires positive integer `product_id` and `quantity`. Optional fields include `telephone2`, `offer_type`, `locality_id`, `commentaire`, `est_fragile`, `ouvrir_colis`, `nombre_article`, `nombre_echange`, and admin-only `dropshipper_id`. Customers cannot set `dropshipper_id` or `manual_price`.
 
 Statuses accepted by the status endpoint: `draft`, `pending`, `confirmed`, `shipped`, `delivered`, `cancelled`. Customers can submit a draft order (`pending`) or cancel an order allowed by the workflow; other transitions are rejected. A rejected workflow transition returns `409`.
 
@@ -136,7 +145,7 @@ Statuses accepted by the status endpoint: `draft`, `pending`, `confirmed`, `ship
 | Method and path | Access | Description |
 |---|---|---|
 | `GET /returns` | Authenticated | List returns visible to the user. |
-| `POST /returns` | Customer, admin, or legacy seller | Create a return/exchange request with `order_id`, `type` (`retour` or `echange`), `reason` (at least 3 characters), and optional `attachments` string array. Customers can request only for their own order. Exchanges require a delivered order. |
+| `POST /returns` | Customer or admin | Create a return/exchange request with `order_id`, `type` (`retour` or `echange`), `reason` (at least 3 characters), and optional `attachments` string array. Customers can request only for their own order. Exchanges require a delivered order. |
 | `PATCH /returns/:id` | Admin | Update optional `status` (`pending`, `approved`, `rejected`, `processed`) and/or `reply`. |
 
 ## Support
@@ -151,7 +160,7 @@ Statuses accepted by the status endpoint: `draft`, `pending`, `confirmed`, `ship
 
 ### `GET /dashboard`
 
-Requires authentication. Returns role-specific `totals`, `revenueByDay`, `statusCounts`, and `recentOrders`. Admin responses also include user/customer/seller counts and low-stock products. Customer responses contain only their order-derived totals and available-product count. Legacy seller accounts get the legacy seller dashboard shape if they have a valid session.
+Requires authentication. Returns role-specific `totals`, `revenueByDay`, `statusCounts`, and `recentOrders`. Admin responses also include user/customer/supplier counts and low-stock products. Customer responses contain only their order-derived totals and available-product count.
 
 ## Inventory
 
@@ -174,25 +183,43 @@ Requires authentication. Returns role-specific `totals`, `revenueByDay`, `status
 
 The upload handler checks file signatures as well as the multipart MIME type. The URL is public, so do not upload private documents unless public access is intended.
 
-## Chat and notifications
+## Payments
 
-Chat is exposed as HTTP REST endpoints; there is no WebSocket API in this server.
+Flouci credentials are optional environment settings (`FLOUCI_PUBLIC_KEY` and `FLOUCI_SECRET_KEY`). The private key is used only by the API. Checkout is available only for an unpaid Flouci order in `pending` state.
 
 | Method and path | Access | Description |
 |---|---|---|
-| `GET /chat/conversations` | Authenticated | List conversations for the current user. |
-| `GET /chat/unread` | Authenticated | Return `{ "count": number }`. |
-| `POST /chat/ensure` | Admin | Ensure an admin-to-admin conversation with `{ "peer_role": "admin" }`. |
-| `POST /chat/ensure-team` | Admin | Ensure the team conversation. |
-| `POST /chat/ensure-supplier` | Customer or legacy seller | Ensure a supplier conversation with `{ "supplier_id": number }`. |
-| `GET /chat/:id/messages` | Authenticated participant | List messages for a conversation. |
-| `POST /chat/:id/messages` | Authenticated participant | Send `{ "body": "...", "image_url": "..." }`; a non-empty body or image is required. Body max is 4000 characters. |
-| `POST /chat/:id/read` | Authenticated participant | Mark conversation read. |
+| `POST /payments/orders/:id/flouci` | Customer | Create or resume the order's Flouci checkout session. Returns `payment_url` and `payment_id`; requires Flouci credentials. |
+| `POST /payments/flouci/verify` | Customer | Verify `{ "order_id": number }` directly with Flouci. The provider-reported amount and tracking ID must match the stored order attempt before the order is marked paid. |
+
+The payment result page calls verification after Flouci redirects back. The redirect itself never marks an order paid. A `pending` verification leaves it unpaid; the customer can request another check. Use the Flouci test-app keys and documented test cards for local development. The memory store loses payment attempts when the server restarts; use MySQL for persistence across restarts.
+
+## Notifications
+
+| Method and path | Access | Description |
+|---|---|---|
 | `GET /notifications` | Authenticated | List the current user’s notifications. |
 | `GET /notifications/unread` | Authenticated | Return `{ "count": number }`. |
 | `POST /notifications/read` | Authenticated | Mark the current user’s notifications as read. |
 
-Conversation membership is checked by the store when messages are listed, sent, or marked read.
+## Restored operations APIs
+
+These route groups are mounted in addition to the marketplace endpoints:
+
+| Prefix | Portal/workflow |
+|---|---|
+| `/chat` | Role-scoped conversations and messages. |
+| `/chef` | Operations, fulfillment, shipments, returns, tickets, warehouse records, partners, leads, and reconciliation. |
+| `/confirmateur` | Pending order confirmation queue and activity dashboards. |
+| `/stocking` | Warehouse inventory, picks, refill and storage requests, shipments, and returns. |
+| `/reservations` | Dropshipper reservations, supplier decisions, and warehouse refill steps. |
+| `/batches` | Batch and scan workflows. |
+| `/staff` | Staff activity and performance summaries. |
+| `/integration` | Delivery provider settings and shipment dispatch. |
+| `/flouci` | Wallets and payouts. |
+| `/keys` and `/v1` | Dropshipper API keys and versioned public API. |
+
+Each group applies server-side role checks. Consult its route handler for exact request fields and state-transition constraints.
 
 ## Health and errors
 
@@ -210,12 +237,13 @@ Common status codes:
 | `404` | Route or resource not found. |
 | `409` | Conflict, duplicate account, disallowed state transition, or online payment unavailable. |
 | `429` | Authentication rate limit reached; check `Retry-After`. |
+| `503` | Optional provider credentials are not configured. |
 | `500` | Unexpected server error; response hides internal details. |
 
 ## Security and implementation notes
 
 - API authorization is enforced server-side; frontend route hiding is not an access control boundary.
 - The request-level middleware checks the persisted user and role for supplied bearer tokens. Protected routes then enforce authentication, roles, and resource ownership where implemented.
-- No payment gateway is connected. `stripe` and `paypal` are accepted as order method labels only; `/orders/:id/pay` deliberately cannot mark payment successful. Admin payment reconciliation is manual and must not be treated as provider verification.
+- Flouci payment state is set only after server-side provider verification. Admin manual payment reconciliation is restricted to COD orders.
 - The authentication throttle is in-memory and resets when the server restarts; it is not a distributed production rate limiter.
-- Some route validation/authorization is less uniform in legacy areas (notably inventory inputs and remaining seller branches). Review the handler before relying on an endpoint in a production deployment.
+- The MySQL role migration expands the account enum without rewriting existing accounts. If a previous run already merged staff roles into `admin`, restore those role assignments from a database backup or have an admin reassign them; their former role cannot be inferred from the current row.

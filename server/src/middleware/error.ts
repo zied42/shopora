@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { ZodSchema } from 'zod';
-import { OrderScanError, StockError } from '../store/types';
+import { InvalidStateError, NotFoundError, OrderScanError, StockError } from '../store/types';
 
 export function validateBody(schema: ZodSchema) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -33,6 +33,14 @@ export function notFoundHandler(_req: Request, res: Response) {
 export function errorHandler(err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof StockError) {
     res.status(400).json({ success: false, error: err.message });
+    return;
+  }
+  if (err instanceof NotFoundError) {
+    res.status(404).json({ success: false, error: err.message });
+    return;
+  }
+  if (err instanceof InvalidStateError) {
+    res.status(409).json({ success: false, error: err.message });
     return;
   }
   if (err instanceof OrderScanError) {

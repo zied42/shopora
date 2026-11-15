@@ -67,8 +67,14 @@ export default function AdminUsers() {
                   <td className="px-3 py-3">
                     <Select value={u.role} onChange={(e) => changeRole(u.id, e.target.value)} className="w-40">
                       <option value="admin">Admin</option>
+                      <option value="chef">Chef</option>
+                      <option value="support">Support</option>
+                      <option value="stocking">Stocking</option>
+                      <option value="confirmateur">Order confirmer</option>
+                      <option value="dropshipper">Dropshipper</option>
+                      <option value="fournisseur">Supplier</option>
                       <option value="customer">Customer</option>
-                      {u.role === 'seller' && <option value="seller" disabled>Legacy seller account</option>}
+                      <option value="seller">Seller</option>
                     </Select>
                   </td>
                   <td className="px-3 py-3 text-slate-500">{new Date(u.created_at).toLocaleDateString()}</td>
@@ -118,7 +124,14 @@ function AddUserModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
         <Field label="Role">
           <Select value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="admin">Admin</option>
+            <option value="chef">Chef</option>
+            <option value="support">Support</option>
+            <option value="stocking">Stocking</option>
+            <option value="confirmateur">Order confirmer</option>
+            <option value="dropshipper">Dropshipper</option>
+            <option value="fournisseur">Supplier</option>
             <option value="customer">Customer</option>
+            <option value="seller">Seller</option>
           </Select>
         </Field>
         <div className="flex justify-end gap-2">

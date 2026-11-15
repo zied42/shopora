@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ah, requireAuth, requireRole } from '../middleware/auth';
 import { validateBody, validateQuery } from '../middleware/error';
 import { Store } from '../store';
+import { isCustomerRole, isSupplierRole } from '../store/roles';
 
 const productSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -69,14 +70,13 @@ export function productRoutes(store: Store): Router {
   router.use(requireAuth);
 
   router.get('/', validateQuery(listQuerySchema), ah(async (req, res) => {
-    const isFournisseur = req.user.role === 'seller';
     const q = typeof req.query.q === 'string' ? req.query.q : undefined;
     const products = await store.listProducts({
       q,
-      fournisseurId: isFournisseur ? req.user.id : undefined,
-      activeOnly: req.user.role === 'customer',
-      hideIneligible: !isFournisseur,
-      excludeCategories: isFournisseur ? undefined : ['fulfillment'],
+      activeOnly: isCustomerRole(req.user.role),
+      fournisseurId: isSupplierRole(req.user.role) ? req.user.id : undefined,
+      hideIneligible: isCustomerRole(req.user.role),
+      excludeCategories: isCustomerRole(req.user.role) ? ['fulfillment'] : [],
     });
     res.json({ success: true, data: products });
   }));
@@ -176,11 +176,11 @@ export function productRoutes(store: Store): Router {
       res.status(404).json({ success: false, error: 'Product not found' });
       return;
     }
-    if (req.user.role === 'customer' && (!p.is_active || p.moderation_status !== 'approved' || (p.offers ?? [p.category]).includes('fulfillment'))) {
+    if (isCustomerRole(req.user.role) && (!p.is_active || p.moderation_status !== 'approved' || (p.offers ?? [p.category]).includes('fulfillment'))) {
       res.status(404).json({ success: false, error: 'Product not found' });
       return;
     }
-    if (req.user.role === 'customer') {
+    if (isCustomerRole(req.user.role)) {
       const { cost_price: _cost, house_stock: _house, committed_stock: _committed, moderation_note: _note, ...publicProduct } = p;
       res.json({ success: true, data: publicProduct });
       return;
@@ -188,37 +188,40 @@ export function productRoutes(store: Store): Router {
     res.json({ success: true, data: p });
   }));
 
-  router.get('/my-supplier-org', requireRole('seller'), ah(async (req, res) => {
-    const users = await store.listUsers();
-    const user = users.find((u) => u.id === req.user.id);
+  router.get('/my-supplier-org', requireRole('fournisseur', 'seller'), ah(async (req, res) => {
+    const user = await store.findUserById(req.user.id);
     if (!user) { res.json({ success: true, data: null }); return; }
     const org = await store.findSupplierOrgByEmail(user.email);
     res.json({ success: true, data: org });
   }));
 
-  router.post('/', requireRole('seller', 'admin'), validateBody(productSchema), ah(async (req, res) => {
+  router.post('/', requireRole('admin', 'fournisseur', 'seller'), validateBody(productSchema), ah(async (req, res) => {
     const barcode = req.body.barcode ?? await store.nextBarcode();
+    const supplier = isSupplierRole(req.user.role);
+    const price = req.body.price;
     const product = await store.createProduct({
       ...req.body,
-      cost_price: req.body.price,
-      fournisseur_id: req.user.role === 'seller' ? req.user.id : req.body.fournisseur_id ?? req.user.id,
+      cost_price: supplier ? price : req.body.price,
+      price: supplier ? Math.round(price * 1.03) : price,
+      fournisseur_id: supplier ? req.user.id : req.body.fournisseur_id ?? req.user.id,
       barcode,
     });
     res.status(201).json({ success: true, data: product });
   }));
 
-  router.patch('/:id(\\d+)', requireRole('seller', 'admin'), validateBody(patchProductSchema), ah(async (req, res) => {
+  router.patch('/:id(\\d+)', requireRole('admin', 'fournisseur', 'seller'), validateBody(patchProductSchema), ah(async (req, res) => {
     const id = Number(req.params.id);
     const product = await store.getProduct(id);
     if (!product) {
       res.status(404).json({ success: false, error: 'Product not found' });
       return;
     }
-    if (req.user.role === 'seller' && product.fournisseur_id !== req.user.id) {
+    const supplier = isSupplierRole(req.user.role);
+    if (supplier && product.fournisseur_id !== req.user.id) {
       res.status(403).json({ success: false, error: 'You can only edit your own products' });
       return;
     }
-    if (req.user.role === 'seller' && 'is_active' in req.body && product.moderation_status !== 'approved') {
+    if (supplier && 'is_active' in req.body && product.moderation_status !== 'approved') {
       res.status(403).json({ success: false, error: 'You can only toggle visibility after the product is approved' });
       return;
     }
@@ -230,19 +233,24 @@ export function productRoutes(store: Store): Router {
         void store.logProductUpdate(id, f, prev[f], next[f]);
       }
     }
-    await store.updateProduct(id, { ...req.body, cost_price: req.body.price ?? product.cost_price });
+    const body = { ...req.body };
+    if (supplier && body.price !== undefined) {
+      body.cost_price = body.price;
+      body.price = Math.round(body.price * 1.03);
+    }
+    await store.updateProduct(id, { ...body, cost_price: body.cost_price ?? body.price ?? product.cost_price });
     const updated = await store.getProduct(id);
     res.json({ success: true, data: updated });
   }));
 
-  router.delete('/:id(\\d+)', requireRole('seller', 'admin'), ah(async (req, res) => {
+  router.delete('/:id(\\d+)', requireRole('admin', 'fournisseur', 'seller'), ah(async (req, res) => {
     const id = Number(req.params.id);
     const product = await store.getProduct(id);
     if (!product) {
       res.status(404).json({ success: false, error: 'Product not found' });
       return;
     }
-    if (req.user.role === 'seller' && product.fournisseur_id !== req.user.id) {
+    if (isSupplierRole(req.user.role) && product.fournisseur_id !== req.user.id) {
       res.status(403).json({ success: false, error: 'You can only delete your own products' });
       return;
     }
@@ -250,15 +258,15 @@ export function productRoutes(store: Store): Router {
     res.json({ success: true, data: { ok: true } });
   }));
 
-  router.post('/:id(\\d+)/stock', requireRole('seller', 'admin'), validateBody(stockSchema), ah(async (req, res) => {
+  router.post('/:id(\\d+)/stock', requireRole('admin', 'fournisseur', 'seller'), validateBody(stockSchema), ah(async (req, res) => {
     const id = Number(req.params.id);
     const product = await store.getProduct(id);
     if (!product) {
       res.status(404).json({ success: false, error: 'Product not found' });
       return;
     }
-    if (req.user.role === 'seller' && product.fournisseur_id !== req.user.id) {
-      res.status(403).json({ success: false, error: 'You can only manage your own products' });
+    if (isSupplierRole(req.user.role) && product.fournisseur_id !== req.user.id) {
+      res.status(403).json({ success: false, error: 'You can only change stock for your own products' });
       return;
     }
     void store.logProductUpdate(id, 'stock', product.stock, req.body.stock);
@@ -267,7 +275,7 @@ export function productRoutes(store: Store): Router {
     res.json({ success: true, data: updated });
   }));
 
-  router.post('/:id(\\d+)/rating', requireRole('customer'), validateBody(ratingSchema), ah(async (req, res) => {
+  router.post('/:id(\\d+)/rating', requireRole('customer', 'dropshipper'), validateBody(ratingSchema), ah(async (req, res) => {
     const id = Number(req.params.id);
     const product = await store.getProduct(id);
     if (!product) {

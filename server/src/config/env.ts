@@ -18,6 +18,8 @@ export const env = {
   DB_SSL: /^(1|true|yes|on)$/i.test(str(process.env.DB_SSL, '0')),
   API_BASE_URL: str(process.env.API_BASE_URL, 'http://localhost:5000'),
   WEB_BASE_URL: str(process.env.WEB_BASE_URL, 'http://localhost:5173'),
+  FLOUCI_PUBLIC_KEY: str(process.env.FLOUCI_PUBLIC_KEY, ''),
+  FLOUCI_SECRET_KEY: str(process.env.FLOUCI_SECRET_KEY, ''),
 };
 
 if (process.env.NODE_ENV === 'production') {

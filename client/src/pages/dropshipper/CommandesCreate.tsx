@@ -37,6 +37,7 @@ export default function CreateTab({ onCreated, exchangeMode = false, dropshipper
   const [ouvrirColis, setOuvrirColis] = useState<'oui' | 'non'>('non');
   const nombreEchange: 'oui' | 'non' = isEchange ? 'oui' : 'non';
   const [nombreArticleField, setNombreArticleField] = useState('1');
+  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'flouci'>('cod');
 
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState<{ order: Order; requested: CreateOrderResponse['requestedFromSupplier'] } | null>(null);
@@ -97,7 +98,7 @@ export default function CreateTab({ onCreated, exchangeMode = false, dropshipper
         shipping_address: adresse,
         customer_phone: telephone || null,
         telephone2: telephone2 || null,
-        payment_method: 'cod',
+        payment_method: paymentMethod,
         items: items.map((it) => ({ product_id: it.product.id, quantity: it.quantity })),
         offer_type: offerType,
         commentaire: commentaire || null,
@@ -123,7 +124,7 @@ export default function CreateTab({ onCreated, exchangeMode = false, dropshipper
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-2xl">✅</div>
           <p className="break-words text-lg font-bold text-slate-900">Order {created.order.order_number} saved as draft</p>
           <p className="break-words text-sm text-slate-500">
-            Total {money(created.order.total)} · Cash on delivery · {created.order.customer_name} — send it from your Orders list when the details are final.
+            Total {money(created.order.total)} · {created.order.payment_method === 'flouci' ? 'Flouci' : 'Cash on delivery'} · {created.order.customer_name} — send it from your Orders list when the details are final.
           </p>
           {dropshippers && <p className="break-words text-xs text-slate-400">Created on behalf of {dropshippers.find((d) => d.id === dropshipperId)?.name}</p>}
           {created.requested.length > 0 && (
@@ -382,10 +383,16 @@ export default function CreateTab({ onCreated, exchangeMode = false, dropshipper
                 {items.map((it) => <Badge key={it.product.id} tone="blue">{it.product.name} ×{it.quantity}</Badge>)}
               </div>
             )}
+            {!dropshippers && <Field label="Payment method">
+              <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'cod' | 'flouci')}>
+                <option value="cod">Cash on delivery</option>
+                <option value="flouci">Flouci (test/live account required)</option>
+              </Select>
+            </Field>}
             <Button className="mt-4 w-full" disabled={saving || items.length === 0} onClick={submit}>
               {saving ? (isEchange ? 'Creating exchange order...' : 'Creating...') : (isEchange ? 'Create exchange order' : 'Create order')}
             </Button>
-            <p className="mt-2 text-center text-xs text-slate-400">Payment on delivery</p>
+            <p className="mt-2 text-center text-xs text-slate-400">{paymentMethod === 'cod' ? 'Pay when the order is delivered' : 'Pay securely through Flouci after sending the order'}</p>
           </div>
         </div>
       </div>

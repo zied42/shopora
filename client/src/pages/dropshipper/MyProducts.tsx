@@ -93,11 +93,11 @@ export default function DsProducts() {
       <PageHeader
         title="My products"
         subtitle="Set your own selling price on each product — save it from the store, pick your price, and keep the difference between your price and the supplier's price"
-        breadcrumb={[{ label: 'Home', to: '/dropshipper' }, { label: 'My products' }]}
+        breadcrumb={[{ label: 'Home', to: '/shop' }, { label: 'My products' }]}
         actions={
           <>
             <ButtonGhost onClick={load}>↻ Refresh</ButtonGhost>
-            <Link to="/dropshipper/store">
+            <Link to="/shop">
               <Button>+ Add from store</Button>
             </Link>
           </>

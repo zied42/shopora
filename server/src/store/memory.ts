@@ -85,8 +85,17 @@ import {
   StaffActivityRow,
   StaffActivityType,
   ServiceInscription,
+  Role,
+  OrderPaymentAttempt,
+  OnlinePaymentStatus,
+  Reservation,
+  ReservationRefill,
+  CreateReservationInput,
+  ReservationRefillPickupItem,
+  ReservationRefillPickupListResult,
 } from './types';
-import { StockError } from './types';
+import { isCustomerRole, isSupplierRole } from './roles';
+import { InvalidStateError, NotFoundError, StockError } from './types';
 import { inferShipmentZone, isShipmentZone, addBusinessDays } from './shipmentZones';
 import { normName, productTrendScore, supplierOfferScore, resolveWholesalePrice } from './shared';
 import { allocateMissingIntoInventories, InventoryFreeSpace, MissingForAllocation } from './shared';
@@ -157,6 +166,11 @@ export function createMemoryStore(): Store {
   const users: DbUser[] = [];
   const products: DbProduct[] = [];
   const orders: OrderFull[] = [];
+  const reservations: Reservation[] = [];
+  const reservationRefills: ReservationRefill[] = [];
+  let reservationSeq = 0;
+  let reservationRefillSeq = 0;
+  const orderPaymentAttempts = new Map<number, OrderPaymentAttempt>();
   const ratings: DbRating[] = [];
   const tickets: DbTicket[] = [];
   const savedProducts: { id: number; dropshipper_id: number; product_id: number; my_price: number | null; offer_type: 'dropshipping' | 'wholesale'; created_at: string }[] = [];
@@ -239,7 +253,7 @@ export function createMemoryStore(): Store {
     const labels = supplierLabelOverrides.get(row.id);
     const u = users.find((x) => x.email.toLowerCase() === row.email.toLowerCase());
     let onboarding = row.onboarding;
-    if (u && u.role === 'seller') {
+    if (u && isSupplierRole(u.role)) {
       onboarding = buildLiveSupplierOnboarding({
         added: products.filter((p) => p.fournisseur_id === u.id).length,
         activeProducts: products.filter((p) => p.fournisseur_id === u.id && p.is_active && p.moderation_status === 'approved').length,
@@ -262,14 +276,14 @@ export function createMemoryStore(): Store {
   const hash = (p: string) => bcrypt.hashSync(p, 10);
 
   function seed() {
-    const admin = { id: ++uid, name: 'Amine Admin', email: 'admin@demo.com', password_hash: hash('password'), role: 'admin' as const, photo: null, cin: null, created_at: now() };
-    const chef = { id: ++uid, name: 'Mohamed Admin', email: 'chef@demo.com', password_hash: hash('password'), role: 'admin' as const, photo: null, cin: null, created_at: now() };
-    const support = { id: ++uid, name: 'Salma Admin', email: 'support@demo.com', password_hash: hash('password'), role: 'admin' as const, photo: null, cin: null, created_at: now() };
-    const stocking = { id: ++uid, name: 'Rania Admin', email: 'stocking@demo.com', password_hash: hash('password'), role: 'admin' as const, photo: null, cin: null, created_at: now() };
-    const confirmateur = { id: ++uid, name: 'Khalil Admin', email: 'confirmateur@demo.com', password_hash: hash('password'), role: 'admin' as const, photo: null, cin: null, created_at: now() };
-    const dropshipper = { id: ++uid, name: 'Sarah Customer', email: 'dropshipper@demo.com', password_hash: hash('password'), role: 'customer' as const, photo: null, cin: '04678123', created_at: now() };
-    const fournisseurA = { id: ++uid, name: 'Karim Seller', email: 'fournisseur@demo.com', password_hash: hash('password'), role: 'seller' as const, photo: null, cin: null, created_at: now() };
-    const fournisseurB = { id: ++uid, name: 'Lina Seller', email: 'lina@demo.com', password_hash: hash('password'), role: 'seller' as const, photo: null, cin: null, created_at: now() };
+    const admin = { id: ++uid, name: 'Amine Admin', email: 'admin@demo.com', password_hash: hash('password'), role: 'admin' as const, photo: null, cin: null, balance: 0, created_at: now() };
+    const chef = { id: ++uid, name: 'Mohamed Chef', email: 'chef@demo.com', password_hash: hash('password'), role: 'chef' as const, photo: null, cin: null, balance: 0, created_at: now() };
+    const support = { id: ++uid, name: 'Salma Support', email: 'support@demo.com', password_hash: hash('password'), role: 'support' as const, photo: null, cin: null, balance: 0, created_at: now() };
+    const stocking = { id: ++uid, name: 'Rania Stocking', email: 'stocking@demo.com', password_hash: hash('password'), role: 'stocking' as const, photo: null, cin: null, balance: 0, created_at: now() };
+    const confirmateur = { id: ++uid, name: 'Khalil Confirmateur', email: 'confirmateur@demo.com', password_hash: hash('password'), role: 'confirmateur' as const, photo: null, cin: null, balance: 0, created_at: now() };
+    const dropshipper = { id: ++uid, name: 'Sarah Dropshipper', email: 'dropshipper@demo.com', password_hash: hash('password'), role: 'dropshipper' as const, photo: null, cin: '04678123', balance: 100, created_at: now() };
+    const fournisseurA = { id: ++uid, name: 'Karim Fournisseur', email: 'fournisseur@demo.com', password_hash: hash('password'), role: 'fournisseur' as const, photo: null, cin: null, balance: 0, created_at: now() };
+    const fournisseurB = { id: ++uid, name: 'Lina Fournisseur', email: 'lina@demo.com', password_hash: hash('password'), role: 'fournisseur' as const, photo: null, cin: null, balance: 0, created_at: now() };
     users.push(admin, chef, support, stocking, confirmateur, dropshipper, fournisseurA, fournisseurB);
 
     // Seed sample staff activity so the team dashboard is populated in demo mode.
@@ -444,8 +458,8 @@ export function createMemoryStore(): Store {
       orders.push(order);
     };
 
-    mkOrder(dropshipper.id, fournisseurA.id, 'Omar B', '+216 22 010 101', 'Tunis', 'Tunis', '12 Rue Habib Bourguiba, Tunis', 'delivered', 'paid', 'stripe', [{ product_id: P[0].id, quantity: 2 }, { product_id: P[7].id, quantity: 1 }], 6);
-    mkOrder(dropshipper.id, fournisseurA.id, 'Yasmine K', '+216 22 010 202', 'Sousse', 'Sousse', '45 Avenue Habib Thameur, Sousse', 'shipped', 'paid', 'paypal', [{ product_id: P[2].id, quantity: 1 }], 3);
+    mkOrder(dropshipper.id, fournisseurA.id, 'Omar B', '+216 22 010 101', 'Tunis', 'Tunis', '12 Rue Habib Bourguiba, Tunis', 'delivered', 'paid', 'cod', [{ product_id: P[0].id, quantity: 2 }, { product_id: P[7].id, quantity: 1 }], 6);
+    mkOrder(dropshipper.id, fournisseurA.id, 'Yasmine K', '+216 22 010 202', 'Sousse', 'Sousse', '45 Avenue Habib Thameur, Sousse', 'shipped', 'paid', 'cod', [{ product_id: P[2].id, quantity: 1 }], 3);
     mkOrder(dropshipper.id, fournisseurB.id, 'Rami T', '+216 22 010 303', 'Sfax', 'Sfax', '8 Boulevard, Sfax', 'confirmed', 'unpaid', 'cod', [{ product_id: P[4].id, quantity: 2 }, { product_id: P[5].id, quantity: 1 }], 1);
     mkOrder(dropshipper.id, fournisseurA.id, 'Nadia M', '+216 22 010 404', 'Nabeul', 'Hammamet', '23 Avenue Habib Bourguiba, Hammamet', 'pending', 'unpaid', 'cod', [{ product_id: P[6].id, quantity: 1 }], 0);
 
@@ -488,8 +502,19 @@ export function createMemoryStore(): Store {
   }
 
   function userPublic(u: DbUser) {
-    return { id: u.id, name: u.name, email: u.email, role: u.role, photo: u.photo, cin: u.cin, created_at: u.created_at };
+    return { id: u.id, name: u.name, email: u.email, role: u.role, photo: u.photo, cin: u.cin, balance: u.balance, created_at: u.created_at };
   }
+
+  const decorateReservation = (r: Reservation): Reservation => {
+    const product = products.find((p) => p.id === r.product_id);
+    const supplier = users.find((u) => u.id === r.fournisseur_id);
+    const customer = users.find((u) => u.id === r.dropshipper_id);
+    const refill = reservationRefills.find((f) => f.reservation_id === r.id);
+    return { ...clone(r), product_name: product?.name ?? r.product_name, product_image: product?.image_url ?? r.product_image,
+      fournisseur_name: supplier?.name ?? r.fournisseur_name, dropshipper_name: customer?.name ?? r.dropshipper_name,
+      refill_status: refill?.status ?? 'none', demanded_qty: refill?.demanded_qty ?? 0, got_qty: refill?.got_qty ?? 0,
+      available_qty: refill?.available_qty ?? 0, free_qty: refill?.status === 'received' ? refill.available_qty : r.remaining };
+  };
 
   function decorateProduct(p: DbProduct): ProductWithSupplier {
     const sup = users.find((u) => u.id === p.fournisseur_id);
@@ -669,7 +694,7 @@ export function createMemoryStore(): Store {
       return clone(users.find((u) => u.id === id) ?? null);
     },
     async createUser(input) {
-      const u: DbUser = { id: ++uid, name: input.name, email: input.email, password_hash: input.password_hash, role: input.role, photo: input.photo ?? null, cin: input.cin ?? null, created_at: now() };
+      const u: DbUser = { id: ++uid, name: input.name, email: input.email, password_hash: input.password_hash, role: input.role, photo: input.photo ?? null, cin: input.cin ?? null, balance: input.balance ?? (input.role === 'dropshipper' || input.role === 'customer' ? 100 : 0), created_at: now() };
       users.push(u);
       return clone(u);
     },
@@ -683,6 +708,144 @@ export function createMemoryStore(): Store {
       if (patch.role !== undefined) u.role = patch.role;
       if (patch.photo !== undefined) u.photo = patch.photo;
       if (patch.cin !== undefined) u.cin = patch.cin ?? null;
+    },
+    async debitUserBalance(id, amount) {
+      const u = users.find((x) => x.id === id);
+      if (!u || amount < 0 || u.balance < amount) return null;
+      u.balance = round2(u.balance - amount);
+      return u.balance;
+    },
+    async settleDeliveredProfits() {
+      let settled = 0;
+      const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
+      for (const order of orders) {
+        if (order.status !== 'delivered' || order.settled_at || !order.delivered_at) continue;
+        const deliveredAt = new Date(order.delivered_at).getTime();
+        if (!Number.isFinite(deliveredAt) || deliveredAt > cutoff) continue;
+        const owner = users.find((u) => u.id === order.dropshipper_id && u.role === 'dropshipper');
+        if (owner) owner.balance = round2(owner.balance + order.profit + order.total);
+        order.settled_at = now();
+        settled++;
+      }
+      return settled;
+    },
+    async listReservations({ role, userId }) {
+      return reservations.filter((r) => role === 'admin' || role === 'chef' || role === 'stocking' || (role === 'dropshipper' && r.dropshipper_id === userId) || (role === 'fournisseur' && r.fournisseur_id === userId)).sort((a, b) => b.id - a.id).map(decorateReservation);
+    },
+    async createReservation(input: CreateReservationInput) {
+      const product = products.find((p) => p.id === input.product_id);
+      const owner = users.find((u) => u.id === input.dropshipper_id);
+      if (!product || !product.is_active) throw new NotFoundError('Product not available');
+      if (!owner || owner.role !== 'dropshipper') throw new NotFoundError('Dropshipper not found');
+      const quantity = Math.floor(input.quantity);
+      const held = reservations.filter((r) => r.product_id === product.id && r.status === 'accepted').reduce((sum, r) => sum + r.remaining, 0);
+      const available = Math.max(0, product.stock - held);
+      if (quantity < 1 || quantity > available) throw new StockError(`Only ${available} units are available to reserve.`);
+      const deposit = round2(quantity * product.price * 0.4);
+      if (owner.balance - deposit <= 100) throw new InvalidStateError('Balance must remain above 100 DT after the deposit.');
+      owner.balance = round2(owner.balance - deposit);
+      const reservation: Reservation = { id: ++reservationSeq, dropshipper_id: owner.id, dropshipper_name: owner.name,
+        fournisseur_id: product.fournisseur_id, fournisseur_name: users.find((u) => u.id === product.fournisseur_id)?.name ?? 'Unknown',
+        product_id: product.id, product_name: product.name, product_image: product.image_url, quantity, price: product.price,
+        deposit, status: 'pending', remaining: quantity, refill_status: 'none', demanded_qty: 0, got_qty: 0, available_qty: 0,
+        free_qty: quantity, created_at: now(), accepted_at: null, resolved_at: null };
+      reservations.push(reservation);
+      return { reservation: decorateReservation(reservation), balance: owner.balance };
+    },
+    async updateReservationPrice(id, price, dropshipperId) {
+      const reservation = reservations.find((r) => r.id === id && (dropshipperId == null || r.dropshipper_id === dropshipperId));
+      if (!reservation) throw new NotFoundError('Reservation not found');
+      if (reservation.status !== 'pending') throw new InvalidStateError('Only pending reservations can be re-priced');
+      const owner = users.find((u) => u.id === reservation.dropshipper_id)!;
+      const deposit = round2(reservation.quantity * price * 0.4);
+      const delta = round2(deposit - reservation.deposit);
+      if (owner.balance - delta <= 100) throw new InvalidStateError('Balance must remain above 100 DT after the deposit.');
+      owner.balance = round2(owner.balance - delta);
+      reservation.price = price;
+      reservation.deposit = deposit;
+      return { reservation: decorateReservation(reservation), balance: owner.balance };
+    },
+    async resolveReservation(id, status, fournisseurId) {
+      const reservation = reservations.find((r) => r.id === id && (fournisseurId == null || r.fournisseur_id === fournisseurId));
+      if (!reservation) throw new NotFoundError('Reservation not found');
+      if (reservation.status !== 'pending') throw new InvalidStateError('Only pending reservations can be resolved');
+      if (status === 'accepted') {
+        const product = products.find((p) => p.id === reservation.product_id)!;
+        const held = reservations.filter((r) => r.product_id === product.id && r.status === 'accepted').reduce((sum, r) => sum + r.remaining, 0);
+        if (reservation.quantity > product.stock - held) throw new StockError('Not enough supplier stock to accept this reservation.');
+        reservation.status = 'accepted';
+        reservation.accepted_at = now();
+      } else {
+        const owner = users.find((u) => u.id === reservation.dropshipper_id);
+        if (owner) owner.balance = round2(owner.balance + reservation.deposit);
+        reservation.status = 'rejected';
+      }
+      reservation.resolved_at = now();
+      return decorateReservation(reservation);
+    },
+    async cancelReservation(id, dropshipperId) {
+      const reservation = reservations.find((r) => r.id === id && (dropshipperId == null || r.dropshipper_id === dropshipperId));
+      if (!reservation) throw new NotFoundError('Reservation not found');
+      if (reservation.status !== 'pending') throw new InvalidStateError('Only pending reservations can be cancelled');
+      const owner = users.find((u) => u.id === reservation.dropshipper_id);
+      if (owner) owner.balance = round2(owner.balance + reservation.deposit);
+      reservation.status = 'cancelled';
+      reservation.resolved_at = now();
+      return decorateReservation(reservation);
+    },
+    async getReservationRefillPickupList(): Promise<ReservationRefillPickupListResult> {
+      const grouped = new Map<number, { supplier: string; ids: Set<number>; items: ReservationRefillPickupItem[] }>();
+      for (const r of reservations.filter((x) => x.status === 'accepted' && !reservationRefills.some((f) => f.reservation_id === x.id))) {
+        const product = products.find((p) => p.id === r.product_id);
+        const supplier = users.find((u) => u.id === r.fournisseur_id)?.name ?? '';
+        const group = grouped.get(r.fournisseur_id) ?? { supplier, ids: new Set<number>(), items: [] };
+        group.ids.add(r.id);
+        group.items.push({ reservation_id: r.id, dropshipper_name: r.dropshipper_name, product_id: r.product_id,
+          product_name: r.product_name, image_url: product?.image_url ?? null, expected_incoming: r.remaining,
+          supplier_stock: product?.stock ?? 0, our_stock: 0, period_consumption: reservations.filter((x) => x.product_id === r.product_id && Date.now() - new Date(x.created_at).getTime() <= 30 * 86400000).reduce((sum, x) => sum + x.quantity, 0),
+          qty_non_confirmed: reservations.filter((x) => x.product_id === r.product_id && x.status === 'pending').reduce((sum, x) => sum + x.quantity, 0),
+          qty_required_orders: r.remaining, qty_to_request: r.remaining, unit_price: r.price });
+        grouped.set(r.fournisseur_id, group);
+      }
+      return { suppliers: [...grouped.values()].map((g) => ({ supplier: g.supplier, reservation_count: g.ids.size,
+        total_qty_to_request: g.items.reduce((sum, item) => sum + item.qty_to_request, 0), items: g.items })) };
+    },
+    async createReservationRefill(reservationId, demandedQty) {
+      const reservation = reservations.find((r) => r.id === reservationId);
+      if (!reservation || reservation.status !== 'accepted') throw new NotFoundError('Accepted reservation not found');
+      let refill = reservationRefills.find((f) => f.reservation_id === reservationId);
+      if (refill) { refill.demanded_qty = demandedQty ?? reservation.remaining; refill.status = 'requested'; return clone(refill); }
+      refill = { id: ++reservationRefillSeq, reservation_id: reservationId, product_id: reservation.product_id, demanded_qty: demandedQty ?? reservation.remaining, got_qty: 0, available_qty: 0, status: 'requested', created_at: now(), received_at: null };
+      reservationRefills.push(refill);
+      return clone(refill);
+    },
+    async updateReservationRefill(reservationId, gotQty) {
+      const reservation = reservations.find((r) => r.id === reservationId);
+      if (!reservation || reservation.status !== 'accepted') throw new InvalidStateError('Only accepted reservations can be refilled');
+      const refill = reservationRefills.find((f) => f.reservation_id === reservationId);
+      if (!refill) throw new NotFoundError('Refill not found');
+      const scanned = Math.max(0, refill.got_qty - refill.available_qty);
+      refill.got_qty = Math.max(scanned, Math.floor(gotQty));
+      refill.available_qty = refill.got_qty - scanned;
+      refill.status = 'received';
+      refill.received_at = now();
+      return clone(refill);
+    },
+    async scanReservationRefill(reservationId) {
+      const refill = reservationRefills.find((f) => f.reservation_id === reservationId);
+      if (!refill || refill.status !== 'received' || refill.available_qty < 1) throw new StockError('No available refill quantity.');
+      refill.available_qty--;
+      return clone(refill);
+    },
+    async restoreReservedUnitsForItem(item) {
+      if (!item.reserved_qty) return;
+      let remaining = item.reserved_qty;
+      for (const reservation of reservations.filter((r) => r.dropshipper_id === item.dropshipper_id && r.product_id === item.product_id && r.status === 'accepted').sort((a, b) => a.id - b.id)) {
+        const add = Math.min(remaining, reservation.quantity - reservation.remaining);
+        reservation.remaining += add;
+        remaining -= add;
+        if (remaining <= 0) break;
+      }
     },
     async deleteUser(id) {
       const i = users.findIndex((x) => x.id === id);
@@ -840,10 +1003,10 @@ export function createMemoryStore(): Store {
     async listOrders(opts) {
       await this.finalizeAutoDeliveries();
       let list = clone(orders);
-      if (opts.role === 'customer') list = list.filter((o) => o.dropshipper_id === opts.userId);
-      if (opts.role === 'seller') list = list.filter((o) => o.items.some((it) => products.find((p) => p.id === it.product_id)?.fournisseur_id === opts.userId));
-      if (opts.role === 'seller') list = list.filter((o) => o.status !== 'draft' || o.dropshipper_id === opts.userId);
-      else if (opts.role !== 'customer' && opts.role !== 'admin') list = list.filter((o) => o.status !== 'draft');
+      if (isCustomerRole(opts.role)) list = list.filter((o) => o.dropshipper_id === opts.userId);
+      if (isSupplierRole(opts.role)) list = list.filter((o) => o.items.some((it) => products.find((p) => p.id === it.product_id)?.fournisseur_id === opts.userId));
+      if (isSupplierRole(opts.role)) list = list.filter((o) => o.status !== 'draft' || o.dropshipper_id === opts.userId);
+      else if (!isCustomerRole(opts.role) && opts.role !== 'admin') list = list.filter((o) => o.status !== 'draft');
       return list.sort((a, b) => b.id - a.id).map(decorateOrder);
     },
     async getOrder(id) {
@@ -1059,6 +1222,22 @@ export function createMemoryStore(): Store {
         if (method) o.payment_method = method;
       }
     },
+    async saveOrderPaymentAttempt(attempt) {
+      orderPaymentAttempts.set(attempt.order_id, clone(attempt));
+    },
+    async getOrderPaymentAttempt(orderId) {
+      const attempt = orderPaymentAttempts.get(orderId);
+      return attempt ? clone(attempt) : null;
+    },
+    async getOrderPaymentAttemptByPaymentId(paymentId) {
+      const attempt = [...orderPaymentAttempts.values()].find((item) => item.payment_id === paymentId);
+      return attempt ? clone(attempt) : null;
+    },
+    async updateOrderPaymentAttemptStatus(paymentId, status: OnlinePaymentStatus) {
+      for (const [orderId, attempt] of orderPaymentAttempts) {
+        if (attempt.payment_id === paymentId) orderPaymentAttempts.set(orderId, { ...attempt, status });
+      }
+    },
     async addTracking(order_id, data) {
       const o = orders.find((x) => x.id === order_id);
       if (!o) throw new Error('Order not found');
@@ -1188,8 +1367,8 @@ export function createMemoryStore(): Store {
     },
     async listReturnRequests(opts) {
       let list = clone(returns);
-      if (opts.role === 'customer') list = list.filter((r) => r.dropshipper_id === opts.userId);
-      else if (opts.role === 'seller') {
+      if (isCustomerRole(opts.role)) list = list.filter((r) => r.dropshipper_id === opts.userId);
+      else if (isSupplierRole(opts.role)) {
         const orderIds = new Set(orders.filter((o) => o.items.some((i) => i.fournisseur_id === opts.userId)).map((o) => o.id));
         list = list.filter((r) => orderIds.has(r.order_id));
       }
@@ -1204,6 +1383,7 @@ export function createMemoryStore(): Store {
           return {
             order_id: o.id,
             order_number: o.order_number,
+            dropshipper_id: o.dropshipper_id,
             dropshipper_name: ds?.name ?? null,
             governorate: o.governorate,
             city: o.city,
@@ -1402,7 +1582,7 @@ export function createMemoryStore(): Store {
       const nowIso = new Date().toISOString();
       const email = input.email.toLowerCase();
       if (users.some((u) => u.email.toLowerCase() === email)) throw new Error('A user account with this email already exists');
-      users.push({ id: ++uid, name: `${input.first_name} ${input.last_name}`.trim(), email, password_hash: hash(input.password), role: 'seller' as const, photo: null, cin: null, created_at: nowIso });
+      users.push({ id: ++uid, name: `${input.first_name} ${input.last_name}`.trim(), email, password_hash: hash(input.password), role: 'seller' as const, photo: null, cin: null, balance: 0, created_at: nowIso });
       const row: SupplierOrganization = {
         id: 900001 + extraSupplierOrgs.length,
         code: `SO${1000 + extraSupplierOrgs.length}`,
@@ -1498,7 +1678,7 @@ export function createMemoryStore(): Store {
       if (!base) return null;
       const labels = supplierLabelOverrides.get(id);
       const u = users.find((x) => x.email.toLowerCase() === base.email.toLowerCase());
-      if (u && u.role === 'seller') {
+      if (u && isSupplierRole(u.role)) {
         base.onboarding = buildLiveSupplierOnboarding({
           added: products.filter((p) => p.fournisseur_id === u.id).length,
           activeProducts: products.filter((p) => p.fournisseur_id === u.id && p.is_active && p.moderation_status === 'approved').length,
@@ -1910,7 +2090,7 @@ export function createMemoryStore(): Store {
     },
 
     async supplierFinance() {
-      const fournisseurs = users.filter((u) => u.role === 'seller');
+      const fournisseurs = users.filter((u) => isSupplierRole(u.role));
       return fournisseurs.map((f) => {
         let total_orders = 0;
         let earned = 0;
@@ -1921,7 +2101,7 @@ export function createMemoryStore(): Store {
           if (o.status === 'delivered') earned += round2(mine.reduce((s, it) => s + (products.find((p) => p.id === it.product_id)?.price ?? it.cost) * it.quantity, 0));
         }
         earned = round2(earned);
-        const paid = round2(payouts.filter((p) => p.recipient_id === f.id && p.recipient_role === 'seller' && p.status === 'paid').reduce((s, p) => s + p.amount, 0));
+        const paid = round2(payouts.filter((p) => p.recipient_id === f.id && isSupplierRole(p.recipient_role as Role) && p.status === 'paid').reduce((s, p) => s + p.amount, 0));
         return { id: f.id, name: f.name, email: f.email, total_orders, total_products: products.filter((p) => p.fournisseur_id === f.id).length, earned, paid, owed: round2(earned - paid) };
       }).sort((a, b) => b.earned - a.earned);
     },
@@ -1945,12 +2125,12 @@ export function createMemoryStore(): Store {
       return { total: round2(rows.reduce((s, r) => s + r.commission, 0)), orders: rows };
     },
     async dropshipperFinance() {
-      const drops = users.filter((u) => u.role === 'customer');
+      const drops = users.filter((u) => isCustomerRole(u.role));
       return drops.map((d) => {
         const mine = orders.filter((o) => o.dropshipper_id === d.id && o.status === 'delivered');
         const total_sales = round2(mine.reduce((s, o) => s + o.total, 0));
         const profit = round2(mine.reduce((s, o) => s + o.profit, 0));
-        const paid = round2(payouts.filter((p) => p.recipient_id === d.id && p.recipient_role === 'customer' && p.status === 'paid').reduce((s, p) => s + p.amount, 0));
+        const paid = round2(payouts.filter((p) => p.recipient_id === d.id && isCustomerRole(p.recipient_role as Role) && p.status === 'paid').reduce((s, p) => s + p.amount, 0));
         return { id: d.id, name: d.name, email: d.email, total_orders: mine.length, total_sales, profit, paid, owed: round2(profit - paid) };
       }).sort((a, b) => b.profit - a.profit);
     },
@@ -1958,7 +2138,8 @@ export function createMemoryStore(): Store {
       return clone(payouts).sort((a, b) => b.id - a.id);
     },
     async listPayoutsForRecipient(recipientId, recipientRole) {
-      return clone(payouts.filter((p) => p.recipient_id === recipientId && p.recipient_role === recipientRole)).sort((a, b) => b.id - a.id);
+      const sameRole = recipientRole === 'customer' || recipientRole === 'dropshipper' ? isCustomerRole : isSupplierRole;
+      return clone(payouts.filter((p) => p.recipient_id === recipientId && sameRole(p.recipient_role as Role))).sort((a, b) => b.id - a.id);
     },
     async getPayoutByFlouciPaymentId(paymentId) {
       return clone(payouts.find((p) => p.flouci_payment_id === paymentId) ?? null);

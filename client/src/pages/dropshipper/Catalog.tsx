@@ -660,7 +660,7 @@ export default function DsCatalog() {
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           {/* Breadcrumb */}
           <nav className="flex items-center gap-2 text-xs font-medium text-slate-400">
-            <Link to="/dropshipper" className="hover:text-slate-700 transition">Dashboard</Link>
+            <Link to="/shop" className="hover:text-slate-700 transition">Shop</Link>
             <span className="text-slate-300">/</span>
             <span className="text-slate-600">Product Catalogue</span>
           </nav>
@@ -712,7 +712,7 @@ export default function DsCatalog() {
               </button>
 
               <Link
-                to="/dropshipper/products"
+                to="/saved"
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 hover:shadow-md"
               >
                 <span>★</span>
@@ -913,7 +913,7 @@ export default function DsCatalog() {
                         isSaved={saved.includes(product.id)}
                         busy={busy === product.id}
                         list={false}
-                        onOpen={() => navigate(`/dropshipper/store/${product.id}`)}
+                        onOpen={() => navigate(`/shop/${product.id}`)}
                         onToggleSave={() => void toggleSave(product)}
                       />
                     ))}
@@ -927,7 +927,7 @@ export default function DsCatalog() {
                         isSaved={saved.includes(product.id)}
                         busy={busy === product.id}
                         list={true}
-                        onOpen={() => navigate(`/dropshipper/store/${product.id}`)}
+                        onOpen={() => navigate(`/shop/${product.id}`)}
                         onToggleSave={() => void toggleSave(product)}
                       />
                     ))}

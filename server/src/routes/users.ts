@@ -5,17 +5,19 @@ import { ah, requireAuth, requireRole } from '../middleware/auth';
 import { validateBody } from '../middleware/error';
 import { Store } from '../store';
 
+const assignableRoles = ['admin', 'support', 'chef', 'stocking', 'confirmateur', 'dropshipper', 'fournisseur', 'customer', 'seller'] as const;
+
 const createUserSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email'),
   password: z.string().min(12, 'Password must be at least 12 characters'),
-  role: z.enum(['admin', 'customer']),
+  role: z.enum(assignableRoles),
   cin: z.string().max(50).optional().nullable(),
 });
 
 const patchUserSchema = z.object({
   name: z.string().min(2).optional(),
-  role: z.enum(['admin', 'customer']).optional(),
+  role: z.enum(assignableRoles).optional(),
   photo: z.string().nullable().optional(),
   cin: z.string().max(50).optional().nullable(),
 });
@@ -37,7 +39,8 @@ export function userRoutes(store: Store): Router {
       return;
     }
     const user = await store.createUser({ name, email, password_hash: bcrypt.hashSync(password, 10), role, cin: req.body.cin ?? null });
-    res.status(201).json({ success: true, data: user });
+    const { password_hash: _passwordHash, ...publicUser } = user;
+    res.status(201).json({ success: true, data: publicUser });
   }));
 
   router.patch('/:id(\\d+)', validateBody(patchUserSchema), ah(async (req, res) => {

@@ -16,6 +16,7 @@ interface AuthContextValue {
   exitImpersonation: () => AuthUser | null;
   impersonator: AuthUser | null;
   updateProfile: (patch: { name?: string; photo?: string | null }) => Promise<AuthUser>;
+  setBalance: (balance: number) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -137,7 +138,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return updated;
   };
 
-  return <AuthContext.Provider value={{ user, loading, login, register, logout, impersonate, exitImpersonation, impersonator, updateProfile }}>{children}</AuthContext.Provider>;
+  const setBalance = (balance: number) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, balance };
+      localStorage.setItem('d42_user', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  return <AuthContext.Provider value={{ user, loading, login, register, logout, impersonate, exitImpersonation, impersonator, updateProfile, setBalance }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

@@ -5,6 +5,8 @@ import { validateBody } from '../middleware/error';
 import { Store } from '../store';
 import { OrderFull, Role } from '../store/types';
 import { logStaffActivity } from '../lib/staffActivity';
+import { partnerId } from '../lib/partnerId';
+import { isCustomerRole, isSupplierRole } from '../store/roles';
 
 const itemSchema = z.object({ product_id: z.number().int().positive(), quantity: z.number().int().min(1) });
 
@@ -15,7 +17,7 @@ const createOrderSchema = z.object({
   governorate: z.string().optional().nullable(),
   city: z.string().optional().nullable(),
   shipping_address: z.string().min(3, 'Shipping address is required'),
-  payment_method: z.enum(['stripe', 'paypal', 'cod']),
+  payment_method: z.enum(['flouci', 'cod']),
   items: z.array(itemSchema).min(1, 'At least one item is required'),
   offer_type: z.enum(['dropshipping', 'wholesale', 'fulfillment']).optional(),
   dropshipper_id: z.number().int().positive().optional(),
@@ -30,7 +32,7 @@ const createOrderSchema = z.object({
 
 const statusSchema = z.object({ status: z.enum(['draft', 'pending', 'confirmed', 'shipped', 'delivered', 'cancelled']) });
 
-const paymentSchema = z.object({ status: z.enum(['paid', 'unpaid']), method: z.enum(['stripe', 'paypal', 'cod']).optional() });
+const paymentSchema = z.object({ status: z.enum(['paid', 'unpaid']) });
 
 const trackingSchema = z.object({
   carrier: z.string().min(1),
@@ -46,33 +48,38 @@ export function orderRoutes(store: Store): Router {
   router.use(requireAuth);
 
   /** Hide the commande scan barcode from dropshippers and suppliers — only staff (chef/support/admin) use scans. */
-  const forRole = (role: Role, o: OrderFull): OrderFull => (role === 'customer' || role === 'seller' ? { ...o, barcode: null } : o);
-
-  /** A fournisseur manages a commande only when every item in it is theirs (i.e. a single-supplier commande). */
-  const isOwnSupplier = (o: OrderFull, userId: number) => o.items.length > 0 && o.items.every((i) => i.fournisseur_id === userId);
+  const forRole = (role: Role, o: OrderFull): OrderFull => {
+    if (isCustomerRole(role)) return { ...o, barcode: null, fournisseur_name: partnerId('fournisseur', o.fournisseur_id), items: o.items.map((i) => ({ ...i, fournisseur_name: partnerId('fournisseur', i.fournisseur_id) })) };
+    if (isSupplierRole(role)) return { ...o, barcode: null, dropshipper_name: partnerId('dropshipper', o.dropshipper_id), dropshipper_cin: null };
+    return o;
+  };
+  const ownsSupplierOrder = (o: OrderFull, userId: number) => o.items.length > 0 && o.items.every((i) => i.fournisseur_id === userId);
+  const ownsOrder = (role: Role, order: OrderFull, userId: number) => isCustomerRole(role)
+    ? order.dropshipper_id === userId
+    : isSupplierRole(role) ? ownsSupplierOrder(order, userId) : role === 'admin' || role === 'chef' || role === 'support' || role === 'stocking' || role === 'confirmateur';
 
   router.get('/', ah(async (req, res) => {
     const orders = await store.listOrders({ role: req.user.role, userId: req.user.id });
     res.json({ success: true, data: orders.map((o) => forRole(req.user.role, o)) });
   }));
 
-  router.post('/', requireRole('customer', 'admin', 'seller'), validateBody(createOrderSchema), ah(async (req, res) => {
+  router.post('/', requireRole('customer', 'dropshipper', 'admin', 'support', 'fournisseur', 'seller'), validateBody(createOrderSchema), ah(async (req, res) => {
     const { items, payment_method } = req.body;
 
-    if (req.user.role === 'customer' && req.body.manual_price !== undefined) {
-      res.status(400).json({ success: false, error: 'Order totals are calculated from current product prices' });
+    if (req.body.manual_price !== undefined && req.user.role !== 'admin') {
+      res.status(403).json({ success: false, error: 'Only an admin can set a manual order total' });
       return;
     }
 
     let dropshipperId = req.user.id;
     let dropshipperName = req.user.name;
     if (req.body.dropshipper_id !== undefined) {
-      if (req.user.role === 'customer') {
+      if (isCustomerRole(req.user.role) || isSupplierRole(req.user.role)) {
         res.status(403).json({ success: false, error: 'You can only create commandes for yourself' });
         return;
       }
       const target = await store.findUserById(req.body.dropshipper_id);
-      if (!target || target.role !== 'customer') {
+      if (!target || !isCustomerRole(target.role)) {
         res.status(400).json({ success: false, error: 'Invalid dropshipper' });
         return;
       }
@@ -87,26 +94,27 @@ export function orderRoutes(store: Store): Router {
         res.status(400).json({ success: false, error: `Product ${it.product_id} not found` });
         return;
       }
-      if (!p.is_active && !(req.user.role === 'seller' && p.fournisseur_id === req.user.id)) {
+      if (!p.is_active) {
         res.status(400).json({ success: false, error: `"${p.name}" is currently unavailable` });
         return;
       }
+      if (isCustomerRole(req.user.role) && (p.moderation_status !== 'approved' || (p.offers ?? [p.category]).includes('fulfillment'))) {
+        res.status(400).json({ success: false, error: `"${p.name}" is not available in the marketplace` });
+        return;
+      }
+      if (isSupplierRole(req.user.role) && p.fournisseur_id !== req.user.id) {
+        res.status(403).json({ success: false, error: 'You can only create commandes for your own products' });
+        return;
+      }
       if (fournisseurId === null) fournisseurId = p.fournisseur_id;
+      else if (fournisseurId !== p.fournisseur_id) {
+        res.status(400).json({ success: false, error: 'A commande can contain products from one supplier only' });
+        return;
+      }
     }
     if (fournisseurId === null) {
       res.status(400).json({ success: false, error: 'No valid items' });
       return;
-    }
-
-    if (req.user.role === 'seller') {
-      for (const it of items) {
-        const p = await store.getProduct(it.product_id);
-        if (!p || p.fournisseur_id !== req.user.id || !(p.offers ?? [p.category]).includes('fulfillment')) {
-          res.status(403).json({ success: false, error: 'You can only create fulfillment orders for your own fulfillment products' });
-          return;
-        }
-      }
-      req.body.offer_type = 'fulfillment';
     }
 
     const order_number = `D42-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`;
@@ -155,7 +163,7 @@ export function orderRoutes(store: Store): Router {
       res.status(404).json({ success: false, error: 'Order not found' });
       return;
     }
-    const canView = req.user.role === 'admin' || order.dropshipper_id === req.user.id || order.items.some((i) => i.fournisseur_id === req.user.id);
+    const canView = ownsOrder(req.user.role, order, req.user.id);
     if (!canView) {
       res.status(403).json({ success: false, error: 'You cannot view this order' });
       return;
@@ -167,23 +175,22 @@ export function orderRoutes(store: Store): Router {
     res.json({ success: true, data: forRole(req.user.role, order) });
   }));
 
-  router.patch('/:id(\\d+)/status', requireRole('seller', 'admin', 'customer'), validateBody(statusSchema), ah(async (req, res) => {
+  router.patch('/:id(\\d+)/status', requireRole('admin', 'chef', 'fournisseur', 'seller', 'customer', 'dropshipper'), validateBody(statusSchema), ah(async (req, res) => {
     const id = Number(req.params.id);
     const order = await store.getOrder(id);
     if (!order) {
       res.status(404).json({ success: false, error: 'Order not found' });
       return;
     }
-    const isOwnSupplierLocal = (o: OrderFull) => isOwnSupplier(o, req.user.id);
-    if (req.user.role === 'seller' && !isOwnSupplierLocal(order)) {
-      res.status(403).json({ success: false, error: 'You can only update your own orders' });
+    if (order.payment_method === 'flouci' && order.payment_status !== 'paid' && ['confirmed', 'shipped', 'delivered'].includes(req.body.status)) {
+      res.status(409).json({ success: false, error: 'Verify the Flouci payment before confirming or fulfilling this order' });
       return;
     }
-    if (req.user.role === 'seller' && order.status === 'draft' && order.dropshipper_id === req.user.id && req.body.status !== 'pending' && req.body.status !== 'cancelled') {
-      res.status(409).json({ success: false, error: 'A draft commande can only be sent to the chef, cancelled or deleted' });
+    if (isSupplierRole(req.user.role) && !ownsSupplierOrder(order, req.user.id)) {
+      res.status(403).json({ success: false, error: 'You can only update commandes containing your products' });
       return;
     }
-    if (req.user.role === 'customer') {
+    if (isCustomerRole(req.user.role)) {
       if (order.dropshipper_id !== req.user.id) {
         res.status(403).json({ success: false, error: 'You can only update your own commandes' });
         return;
@@ -206,6 +213,19 @@ export function orderRoutes(store: Store): Router {
         return;
       }
     }
+    if (isSupplierRole(req.user.role)) {
+      const allowed = order.status === 'draft'
+        ? ['pending', 'cancelled'].includes(req.body.status)
+        : order.status === 'pending'
+          ? ['confirmed', 'cancelled'].includes(req.body.status)
+          : order.status === 'confirmed'
+            ? req.body.status === 'shipped'
+            : order.status === 'shipped' && req.body.status === 'delivered';
+      if (!allowed) {
+        res.status(409).json({ success: false, error: 'This status transition is not allowed for the supplier role' });
+        return;
+      }
+    }
     if (order.payment_method === 'cod' && req.body.status === 'delivered') {
       await store.updatePayment(id, 'paid');
     }
@@ -214,16 +234,14 @@ export function orderRoutes(store: Store): Router {
     res.json({ success: true, data: forRole(req.user.role, updated!) });
   }));
 
-  router.patch('/:id(\\d+)/delivery-company', requireRole('seller', 'admin'), ah(async (req, res) => {
+  router.patch('/:id(\\d+)/delivery-company', requireRole('admin', 'chef', 'stocking', 'fournisseur', 'seller'), ah(async (req, res) => {
     const id = Number(req.params.id);
     const schema = z.object({ delivery_company: z.string().trim().min(1).max(80).nullable() });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ success: false, error: 'Invalid delivery company' }); return; }
     const order = await store.getOrder(id);
     if (!order) { res.status(404).json({ success: false, error: 'Order not found' }); return; }
-    if (req.user.role === 'seller' && !isOwnSupplier(order, req.user.id)) {
-      res.status(403).json({ success: false, error: 'You can only update your own orders' }); return;
-    }
+    if (isSupplierRole(req.user.role) && !ownsSupplierOrder(order, req.user.id)) { res.status(403).json({ success: false, error: 'You can only update commandes containing your products' }); return; }
     const { delivery_company } = parsed.data;
     await store.setDeliveryCompany(id, delivery_company ?? null);
     const updated = await store.getOrder(id);
@@ -237,7 +255,7 @@ export function orderRoutes(store: Store): Router {
       res.status(404).json({ success: false, error: 'Order not found' });
       return;
     }
-    if (req.user.role === 'customer') {
+    if (isCustomerRole(req.user.role)) {
       if (order.dropshipper_id !== req.user.id) {
         res.status(403).json({ success: false, error: 'You can only delete your own commandes' });
         return;
@@ -246,35 +264,15 @@ export function orderRoutes(store: Store): Router {
         res.status(409).json({ success: false, error: 'This commande was already sent to the chef — it can no longer be deleted' });
         return;
       }
-    } else if (req.user.role === 'seller') {
-      if (order.dropshipper_id !== req.user.id) {
-        res.status(403).json({ success: false, error: 'You can only delete your own commandes' });
-        return;
-      }
-      if (order.status !== 'draft') {
-        res.status(409).json({ success: false, error: 'This commande was already sent to the chef — it can no longer be deleted' });
-        return;
-      }
-    } else if (req.user.role !== 'admin' && order.status !== 'pending' && order.status !== 'draft') {
+    } else if (!['admin', 'chef', 'support'].includes(req.user.role) && !(isSupplierRole(req.user.role) && ownsSupplierOrder(order, req.user.id)) ) {
+      res.status(403).json({ success: false, error: 'You cannot delete this commande' });
+      return;
+    } else if (req.user.role !== 'admin' && req.user.role !== 'chef' && order.status !== 'pending' && order.status !== 'draft') {
       res.status(409).json({ success: false, error: 'Only commandes that have not been confirmed or shipped can be deleted' });
       return;
     }
     await store.deleteOrder(id);
     res.json({ success: true, data: { deleted: id } });
-  }));
-
-  router.post('/:id(\\d+)/pay', requireRole('customer', 'admin'), validateBody(paymentSchema), ah(async (req, res) => {
-    const id = Number(req.params.id);
-    const order = await store.getOrder(id);
-    if (!order) {
-      res.status(404).json({ success: false, error: 'Order not found' });
-      return;
-    }
-    if (req.user.role === 'customer' && order.dropshipper_id !== req.user.id) {
-      res.status(403).json({ success: false, error: 'You can only pay for your own orders' });
-      return;
-    }
-    res.status(409).json({ success: false, error: 'Online payment is not configured. Order payment status cannot be changed through this endpoint.' });
   }));
 
   router.patch('/:id(\\d+)/payment', requireRole('admin'), validateBody(paymentSchema), ah(async (req, res) => {
@@ -284,7 +282,11 @@ export function orderRoutes(store: Store): Router {
       res.status(404).json({ success: false, error: 'Order not found' });
       return;
     }
-    await store.updatePayment(id, req.body.status ?? 'paid', req.body.method ?? null);
+    if (order.payment_method !== 'cod') {
+      res.status(409).json({ success: false, error: 'Online payments can only be reconciled after provider verification' });
+      return;
+    }
+    await store.updatePayment(id, req.body.status);
     logStaffActivity(store, req.user, {
       activity_type: 'payment_reconcile',
       label: `Reconciled payment for order ${order.order_number}: ${req.body.status ?? 'paid'}`,
@@ -295,29 +297,26 @@ export function orderRoutes(store: Store): Router {
     res.json({ success: true, data: forRole(req.user.role, updated!) });
   }));
 
-  router.post('/:id(\\d+)/tracking', requireRole('seller', 'admin'), validateBody(trackingSchema), ah(async (req, res) => {
+  router.post('/:id(\\d+)/tracking', requireRole('admin', 'fournisseur', 'seller'), validateBody(trackingSchema), ah(async (req, res) => {
     const id = Number(req.params.id);
     const order = await store.getOrder(id);
     if (!order) {
       res.status(404).json({ success: false, error: 'Order not found' });
       return;
     }
-    if (req.user.role === 'seller' && !isOwnSupplier(order, req.user.id)) {
-      res.status(403).json({ success: false, error: 'You can only add tracking to your own orders' });
-      return;
-    }
+    if (isSupplierRole(req.user.role) && !ownsSupplierOrder(order, req.user.id)) { res.status(403).json({ success: false, error: 'You can only track commandes containing your products' }); return; }
     await store.addTracking(id, { carrier: req.body.carrier, tracking_number: req.body.tracking_number, status: req.body.status, detail: req.body.detail ?? null });
     const updated = await store.getOrder(id);
     res.json({ success: true, data: forRole(req.user.role, updated!) });
   }));
 
   /** Confirmation service inscription — dropshippers apply, staff confirm later. */
-  router.get('/confirmation-service/status', requireRole('customer'), ah(async (req, res) => {
+  router.get('/confirmation-service/status', requireRole('customer', 'dropshipper'), ah(async (req, res) => {
     const row = await store.getLatestServiceInscription(req.user.id, 'confirmation');
     res.json({ success: true, data: row });
   }));
 
-  router.post('/confirmation-service/apply', requireRole('customer'), ah(async (req, res) => {
+  router.post('/confirmation-service/apply', requireRole('customer', 'dropshipper'), ah(async (req, res) => {
     const existing = await store.getLatestServiceInscription(req.user.id, 'confirmation');
     if (existing && existing.status !== 'rejected') {
       res.status(400).json({ success: false, error: existing.status === 'pending' ? 'You already have a pending application' : 'The service is already active' });

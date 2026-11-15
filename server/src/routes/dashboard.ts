@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ah, requireAuth } from '../middleware/auth';
 import { Store } from '../store';
 import { OrderFull } from '../store/types';
+import { isCustomerRole, isSupplierRole } from '../store/roles';
 
 const round = (n: number) => Math.round(n * 100) / 100;
 const dayKey = (d: string) => d.slice(0, 10);
@@ -32,8 +33,8 @@ export function dashboardRoutes(store: Store): Router {
             orders: orders.length,
             products: products.length,
             users: users.length,
-            customers: users.filter((u) => u.role === 'customer').length,
-            sellers: users.filter((u) => u.role === 'seller').length,
+            customers: users.filter((u) => isCustomerRole(u.role)).length,
+            sellers: users.filter((u) => isSupplierRole(u.role)).length,
             pendingOrders: orders.filter((o) => o.status === 'pending').length,
             lowStock: lowStock.length,
           },
@@ -46,7 +47,7 @@ export function dashboardRoutes(store: Store): Router {
       return;
     }
 
-    if (role === 'customer') {
+    if (isCustomerRole(role)) {
       const available = await store.listProducts({ activeOnly: true });
       const unpaid = orders.filter((o) => o.payment_status === 'unpaid');
       res.json({
@@ -70,6 +71,10 @@ export function dashboardRoutes(store: Store): Router {
     }
 
     // fournisseur
+    if (!isSupplierRole(role)) {
+      res.status(403).json({ success: false, error: 'Use your role-specific dashboard' });
+      return;
+    }
     const products = await store.listProducts({ fournisseurId: req.user.id });
     const lowStock = products.filter((p) => p.stock < 20).sort((a, b) => a.stock - b.stock).slice(0, 6);
     res.json({

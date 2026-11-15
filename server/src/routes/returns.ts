@@ -26,18 +26,14 @@ export function returnRoutes(store: Store): Router {
     res.json({ success: true, data: returns });
   }));
 
-  router.post('/', requireRole('customer', 'seller', 'admin'), validateBody(createSchema), ah(async (req, res) => {
+  router.post('/', requireRole('customer', 'dropshipper', 'admin', 'fournisseur', 'seller'), validateBody(createSchema), ah(async (req, res) => {
     const order = await store.getOrder(req.body.order_id);
     if (!order) {
       res.status(404).json({ success: false, error: 'Commande not found' });
       return;
     }
-    if (req.user.role === 'customer' && order.dropshipper_id !== req.user.id) {
+    if ((req.user.role === 'customer' || req.user.role === 'dropshipper') && order.dropshipper_id !== req.user.id) {
       res.status(403).json({ success: false, error: 'You can only request a return for your own commandes' });
-      return;
-    }
-    if (req.user.role === 'seller' && (order.items.length === 0 || !order.items.every((item) => item.fournisseur_id === req.user.id))) {
-      res.status(403).json({ success: false, error: 'You can only request returns for orders containing your products' });
       return;
     }
     if (req.body.type === 'echange' && order.status !== 'delivered') {
@@ -50,7 +46,7 @@ export function returnRoutes(store: Store): Router {
       type: req.body.type,
       reason: req.body.reason,
       attachments: req.body.attachments,
-      autoApproved: req.user.role === 'seller' && req.body.type === 'echange',
+      autoApproved: false,
     });
     res.status(201).json({ success: true, data: { ok: true } });
   }));

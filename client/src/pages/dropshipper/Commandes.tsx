@@ -7,10 +7,10 @@ import CreateTab from './CommandesCreate';
 import ReturnsTab from './ReturnsTab';
 
 const TABS = (path: string) => [
-  { to: '/dropshipper/commandes', label: 'Orders', icon: '🧾', active: path === '/dropshipper/commandes' },
-  { to: '/dropshipper/commandes/create', label: 'Create order', icon: '➕', active: path === '/dropshipper/commandes/create' || path === '/dropshipper/commandes/echange/create' },
-  { to: '/dropshipper/commandes/retours', label: 'Returns', icon: '↩️', active: path.includes('/commandes/retours') },
-  { to: '/dropshipper/commandes/echange', label: 'Exchanges', icon: '🔁', active: path === '/dropshipper/commandes/echange' },
+  { to: '/orders', label: 'Orders', icon: '🧾', active: path === '/orders' },
+  { to: '/orders/create', label: 'Create order', icon: '➕', active: path === '/orders/create' || path === '/orders/echange/create' },
+  { to: '/orders/retours', label: 'Returns', icon: '↩️', active: path.includes('/orders/retours') },
+  { to: '/orders/echange', label: 'Exchanges', icon: '🔁', active: path === '/orders/echange' },
 ];
 
 export default function DsCommandes() {
@@ -27,7 +27,7 @@ export default function DsCommandes() {
   };
   useEffect(load, []);
   useEffect(() => {
-    if (pathname === '/dropshipper/commandes') load();
+    if (pathname === '/orders') load();
   }, [pathname]);
 
   return (
@@ -35,7 +35,7 @@ export default function DsCommandes() {
       <PageHeader
         title="My commandes"
         subtitle="Manage your orders, returns and exchanges"
-        breadcrumb={[{ label: 'Home', to: '/dropshipper' }, { label: 'Orders' }]}
+        breadcrumb={[{ label: 'Home', to: '/shop' }, { label: 'Orders' }]}
       />
 
       <div className="mb-5 inline-flex flex-wrap gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1">
@@ -56,11 +56,11 @@ export default function DsCommandes() {
         ))}
       </div>
 
-      {pathname === '/dropshipper/commandes' && <OrderList orders={orders} loading={loading} onRefresh={load} />}
-      {pathname === '/dropshipper/commandes/create' && <CreateTab onCreated={load} />}
-      {pathname === '/dropshipper/commandes/echange/create' && <CreateTab onCreated={load} exchangeMode />}
-      {pathname.includes('/commandes/retours') && <ReturnsTab type="retour" />}
-      {pathname === '/dropshipper/commandes/echange' && <ReturnsTab type="echange" />}
+      {pathname === '/orders' && <OrderList orders={orders} loading={loading} onRefresh={load} />}
+      {pathname === '/orders/create' && <CreateTab onCreated={load} />}
+      {pathname === '/orders/echange/create' && <CreateTab onCreated={load} exchangeMode />}
+      {pathname.includes('/orders/retours') && <ReturnsTab type="retour" />}
+      {pathname === '/orders/echange' && <ReturnsTab type="echange" />}
     </div>
   );
 }

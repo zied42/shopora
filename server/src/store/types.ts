@@ -14,7 +14,21 @@ export type {
   SupplierOrganizationsResult,
 };
 
-export type Role = 'admin' | 'customer' | 'seller';
+/**
+ * Shopora keeps its original Lunexa portal roles distinct so API permissions
+ * can be enforced per job. `customer`/`seller` remain aliases for deployments
+ * that already use Shopora's renamed account types.
+ */
+export type Role =
+  | 'admin'
+  | 'support'
+  | 'chef'
+  | 'stocking'
+  | 'confirmateur'
+  | 'dropshipper'
+  | 'fournisseur'
+  | 'customer'
+  | 'seller';
 /** Sourcing model a fournisseur offers a product under. */
 export type ProductCategory = 'dropshipping' | 'wholesale' | 'white_label' | 'fulfillment';
 export const PRODUCT_CATEGORIES: ProductCategory[] = ['dropshipping', 'wholesale', 'white_label', 'fulfillment'];
@@ -77,7 +91,75 @@ export interface OrderPickabilityRow {
 /** The barcode/QR scan actions a chef can perform while fulfilling a commande. */
 export type ScanAction = 'confirm' | 'shipping' | 'retour';
 export type PaymentStatus = 'unpaid' | 'paid';
+export type OnlinePaymentStatus = 'pending' | 'paid' | 'failed' | 'expired';
+export interface OrderPaymentAttempt {
+  order_id: number;
+  payment_id: string;
+  tracking_id: string;
+  amount_millimes: number;
+  link: string;
+  status: OnlinePaymentStatus;
+}
 export type PayoutStatus = 'pending' | 'paid' | 'cancelled';
+
+export type ReservationStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
+export type ReservationRefillStatus = 'none' | 'requested' | 'received';
+
+export interface Reservation {
+  id: number;
+  dropshipper_id: number;
+  dropshipper_name: string;
+  fournisseur_id: number;
+  fournisseur_name: string;
+  product_id: number;
+  product_name: string;
+  product_image: string | null;
+  quantity: number;
+  price: number;
+  deposit: number;
+  status: ReservationStatus;
+  remaining: number;
+  refill_status: ReservationRefillStatus;
+  demanded_qty: number;
+  got_qty: number;
+  available_qty: number;
+  free_qty: number;
+  created_at: string;
+  accepted_at: string | null;
+  resolved_at: string | null;
+}
+
+export interface ReservationRefill {
+  id: number;
+  reservation_id: number;
+  product_id: number;
+  demanded_qty: number;
+  got_qty: number;
+  available_qty: number;
+  status: 'requested' | 'received';
+  created_at: string;
+  received_at: string | null;
+}
+
+export interface CreateReservationInput { dropshipper_id: number; product_id: number; quantity: number }
+export interface ReservationRefillPickupItem {
+  reservation_id: number;
+  dropshipper_name: string;
+  product_id: number;
+  product_name: string;
+  image_url: string | null;
+  expected_incoming: number;
+  supplier_stock: number;
+  our_stock: number;
+  period_consumption: number;
+  qty_non_confirmed: number;
+  qty_required_orders: number;
+  qty_to_request: number;
+  unit_price: number;
+}
+export interface ReservationRefillPickupSupplier { supplier: string; reservation_count: number; total_qty_to_request: number; items: ReservationRefillPickupItem[] }
+export interface ReservationRefillPickupListResult { suppliers: ReservationRefillPickupSupplier[] }
+export interface PlatformReservationRow { id: number; product_name: string; dropshipper_id: number; dropshipper_name: string; quantity: number; price: number }
 
 export interface DbUser {
   id: number;
@@ -88,6 +170,7 @@ export interface DbUser {
   photo: string | null;
   /** CIN card number (national identity) of the user. */
   cin: string | null;
+  balance: number;
   created_at: string;
 }
 
@@ -98,6 +181,7 @@ export interface DbUserPublic {
   role: Role;
   photo: string | null;
   cin: string | null;
+  balance: number;
   created_at: string;
 }
 
@@ -307,7 +391,13 @@ export interface OrderItem {
   house_qty?: number;
   /** Quantity of this item requested from the supplier (needs fulfillment). */
   supplier_qty?: number;
+  /** Units of this item drawn from the dropshipper's accepted reservation. */
+  reserved_qty?: number;
+  reserved_reservation_id?: number | null;
+  reserved_allocations?: OrderReservedAllocation[] | null;
 }
+
+export interface OrderReservedAllocation { reservation_id: number; qty: number }
 
 export interface TrackStep {
   id: number;
@@ -320,10 +410,15 @@ export interface TrackStep {
 }
 
 export interface OrderFull extends DbOrder {
+  settled_at?: string | null;
   dropshipper_name: string;
   /** CIN card number of the dropshipper who placed the commande (printed on the shipping paper). */
   dropshipper_cin: string | null;
   fournisseur_name: string;
+  reserved_total?: number;
+  non_reserved_total?: number;
+  non_reserved_cost?: number;
+  est_profit?: number;
   items: OrderItem[];
   tracking: TrackStep[];
 }
@@ -402,6 +497,7 @@ export interface ReturnRequest {
 export interface RetourOrderSummary {
   order_id: number;
   order_number: string;
+  dropshipper_id: number;
   dropshipper_name: string | null;
   governorate: string | null;
   city: string | null;
@@ -1045,6 +1141,7 @@ export interface CreateUserInput {
   role: Role;
   photo?: string | null;
   cin?: string | null;
+  balance?: number;
 }
 
 export interface CreateProductInput {
@@ -1225,7 +1322,7 @@ export interface Payout {
   id: number;
   recipient_id: number;
   recipient_name: string;
-  recipient_role: 'seller' | 'customer';
+  recipient_role: 'seller' | 'customer' | 'fournisseur' | 'dropshipper';
   amount: number;
   period: string | null;
   status: PayoutStatus;
@@ -1241,7 +1338,7 @@ export interface Payout {
 
 export interface CreatePayoutInput {
   recipient_id: number;
-  recipient_role: 'seller' | 'customer';
+  recipient_role: 'seller' | 'customer' | 'fournisseur' | 'dropshipper';
   amount: number;
   period?: string | null;
   notes?: string | null;
@@ -1402,9 +1499,11 @@ export interface FulfillmentAllocationResult {
 
 export interface Store {
   findUserByEmail(email: string): Promise<DbUser | null>;
+  debitUserBalance(id: number, amount: number): Promise<number | null>;
   findOrderByCode(code: string): Promise<OrderFull | null>;
   scanOrder(id: number, action: ScanAction, confirmedBy?: number | null): Promise<OrderFull>;
   finalizeAutoDeliveries(): Promise<number>;
+  settleDeliveredProfits(): Promise<number>;
   findUserById(id: number): Promise<DbUser | null>;
   createUser(input: CreateUserInput): Promise<DbUser>;
   listUsers(): Promise<DbUserPublic[]>;
@@ -1434,6 +1533,10 @@ export interface Store {
   /** Permanently remove a commande (frees its claimed retour-pool and committed stock). */
   deleteOrder(id: number): Promise<void>;
   updatePayment(id: number, payment_status: PaymentStatus, method?: string | null): Promise<void>;
+  saveOrderPaymentAttempt(attempt: OrderPaymentAttempt): Promise<void>;
+  getOrderPaymentAttempt(orderId: number): Promise<OrderPaymentAttempt | null>;
+  getOrderPaymentAttemptByPaymentId(paymentId: string): Promise<OrderPaymentAttempt | null>;
+  updateOrderPaymentAttemptStatus(paymentId: string, status: OnlinePaymentStatus): Promise<void>;
   addTracking(order_id: number, data: { carrier: string; tracking_number: string; status: string; detail?: string }): Promise<void>;
 
   listNotifications(userId: number): Promise<AppNotification[]>;
@@ -1468,6 +1571,16 @@ export interface Store {
 
   createReturnRequest(input: { dropshipper_id: number; order_id: number; type: ReturnType; reason: string; attachments?: string[]; autoApproved?: boolean }): Promise<void>;
   listReturnRequests(opts: ListReturnsOpts): Promise<ReturnRequest[]>;
+  listReservations(opts: { role: Role; userId: number }): Promise<Reservation[]>;
+  createReservation(input: CreateReservationInput): Promise<{ reservation: Reservation; balance: number }>;
+  updateReservationPrice(id: number, price: number, dropshipperId?: number): Promise<{ reservation: Reservation; balance: number }>;
+  getReservationRefillPickupList(): Promise<ReservationRefillPickupListResult>;
+  resolveReservation(id: number, status: 'accepted' | 'rejected', fournisseurId?: number): Promise<Reservation>;
+  cancelReservation(id: number, dropshipperId?: number): Promise<Reservation>;
+  createReservationRefill(reservationId: number, demandedQty?: number): Promise<ReservationRefill>;
+  updateReservationRefill(reservationId: number, gotQty: number): Promise<ReservationRefill>;
+  scanReservationRefill(reservationId: number): Promise<ReservationRefill>;
+  restoreReservedUnitsForItem(item: { product_id: number; dropshipper_id: number; reserved_qty: number; reserved_reservation_id: number | null; reserved_allocations?: OrderReservedAllocation[] | null }): Promise<void>;
   listRetourOrdersForChef(excludeOrderIds: Set<number>): Promise<RetourOrderSummary[]>;
   getReturnOrderProducts(orderIds: number[]): Promise<Map<number, { product_name: string; quantity: number }[]>>;
   updateReturnRequest(id: number, patch: {
@@ -1550,7 +1663,7 @@ export interface Store {
   dropshipperFinance(): Promise<DropshipperFinanceRow[]>;
   platformEarnings(): Promise<PlatformEarnings>;
   listPayouts(): Promise<Payout[]>;
-  listPayoutsForRecipient(recipientId: number, recipientRole: 'seller' | 'customer'): Promise<Payout[]>;
+  listPayoutsForRecipient(recipientId: number, recipientRole: Payout['recipient_role']): Promise<Payout[]>;
   getPayoutById(id: number): Promise<Payout | null>;
   getPayoutByFlouciPaymentId(paymentId: string): Promise<Payout | null>;
   createPayout(input: CreatePayoutInput): Promise<number>;
@@ -1603,6 +1716,14 @@ export class StockError extends Error {
     super(message);
     this.name = 'StockError';
   }
+}
+
+export class NotFoundError extends Error {
+  constructor(message: string) { super(message); this.name = 'NotFoundError'; }
+}
+
+export class InvalidStateError extends Error {
+  constructor(message: string) { super(message); this.name = 'InvalidStateError'; }
 }
 
 export type OrderScanErrorCode = 'not_found' | 'conflict' | 'invalid_state';

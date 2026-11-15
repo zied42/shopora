@@ -7,7 +7,7 @@ import { apiErrorMessage, apiGet, apiPost, AppNotification, applyConfirmationSer
 import { ThemeToggle } from './ui';
 
 const NEW_PRODUCT_TOAST_KEY = 'shopora.new_product_toast_id';
-const STAFF_ROLES = ['admin'];
+const STAFF_ROLES = ['admin', 'support', 'chef', 'stocking', 'confirmateur'];
 
 interface NavChild {
   to: string;
@@ -42,20 +42,112 @@ const NAV: Record<string, NavSection[]> = {
       { to: '/admin/inventory', label: 'Inventory', icon: '' },
       { to: '/admin/users', label: 'Users', icon: '' },
       { to: '/admin/support', label: 'Support', icon: '' },
+      { to: '/admin/staff', label: 'Staff', icon: '' },
+      { to: '/admin/integration', label: 'Integrations', icon: '' },
+      { to: '/admin/chat', label: 'Team chat', icon: '' },
     ] },
   ],
   customer: [
     { label: 'Shop', items: [
-      { to: '/dropshipper/store', label: 'Catalog', icon: '' },
-      { to: '/dropshipper/commandes', label: 'My orders', icon: '' },
-      { to: '/dropshipper/support', label: 'Support', icon: '' },
+      { to: '/shop', label: 'Catalog', icon: '' },
+      { to: '/orders', label: 'My orders', icon: '' },
+      { to: '/support', label: 'Support', icon: '' },
+    ] },
+  ],
+  dropshipper: [
+    { label: 'Dropshipper', items: [
+      { to: '/dropshipper', label: 'Dashboard', icon: '' },
+      { to: '/shop', label: 'Catalog', icon: '' },
+      { to: '/dropshipper/trending', label: 'Trending', icon: '' },
+      { to: '/orders', label: 'Orders', icon: '' },
+      { to: '/dropshipper/reservations', label: 'Reservations', icon: '' },
+      { to: '/support', label: 'Support', icon: '' },
+      { to: '/dropshipper/integrations', label: 'Integrations', icon: '' },
+      { to: '/dropshipper/api', label: 'API keys & docs', icon: '' },
+      { to: '/dropshipper/payments', label: 'Payments', icon: '' },
+    ] },
+  ],
+  seller: [
+    { label: 'Supplier', items: [
+      { to: '/fournisseur', label: 'Dashboard', icon: '' },
+      { to: '/fournisseur/products', label: 'Products', icon: '' },
+      { to: '/fournisseur/orders', label: 'Orders', icon: '' },
+      { to: '/fournisseur/inventory', label: 'Inventory', icon: '' },
+      { to: '/fournisseur/stock-shipments', label: 'Stock shipments', icon: '' },
+      { to: '/fournisseur/fulfillment/orders', label: 'Fulfillment', icon: '' },
+      { to: '/fournisseur/support', label: 'Support', icon: '' },
+    ] },
+  ],
+  fournisseur: [
+    { label: 'Supplier', items: [
+      { to: '/fournisseur', label: 'Dashboard', icon: '' },
+      { to: '/fournisseur/products', label: 'Products', icon: '' },
+      { to: '/fournisseur/products/add', label: 'Add product', icon: '' },
+      { to: '/fournisseur/orders', label: 'Orders', icon: '' },
+      { to: '/fournisseur/reservations', label: 'Reservations', icon: '' },
+      { to: '/fournisseur/inventory', label: 'Inventory', icon: '' },
+      { to: '/fournisseur/storage-requests', label: 'Storage requests', icon: '' },
+      { to: '/fournisseur/warehouses', label: 'Warehouses', icon: '' },
+      { to: '/fournisseur/stock-shipments', label: 'Stock shipments', icon: '' },
+      { to: '/fournisseur/fulfillment/orders', label: 'Fulfillment', icon: '' },
+      { to: '/fournisseur/packaging', label: 'Packaging', icon: '' },
+      { to: '/fournisseur/price-updates', label: 'Price updates', icon: '' },
+      { to: '/fournisseur/subscriptions', label: 'Subscriptions', icon: '' },
+      { to: '/fournisseur/support', label: 'Support', icon: '' },
+    ] },
+  ],
+  chef: [
+    { label: 'Operations', items: [
+      { to: '/chef', label: 'Overview', icon: '' },
+      { to: '/chef/commandes', label: 'Orders', icon: '' },
+      { to: '/chef/shipments', label: 'Shipments', icon: '' },
+      { to: '/chef/returns', label: 'Returns', icon: '' },
+      { to: '/chef/pickup-requests', label: 'Pickup requests', icon: '' },
+      { to: '/chef/manifests', label: 'Manifests', icon: '' },
+      { to: '/chef/inventory', label: 'Inventory', icon: '' },
+      { to: '/chef/warehouses', label: 'Warehouses', icon: '' },
+      { to: '/chef/products', label: 'Products', icon: '' },
+      { to: '/chef/leads/list', label: 'Leads', icon: '' },
+      { to: '/chef/tickets', label: 'Tickets', icon: '' },
+      { to: '/chef/subscriptions', label: 'Subscriptions', icon: '' },
+      { to: '/chef/transactions', label: 'Transactions', icon: '' },
+    ] },
+  ],
+  support: [
+    { label: 'Support', items: [
+      { to: '/support/desk', label: 'Inbox', icon: '' },
+      { to: '/support/desk/tickets', label: 'Tickets', icon: '' },
+      { to: '/support/desk/services', label: 'Services', icon: '' },
+      { to: '/support/desk/commandes', label: 'Orders', icon: '' },
+    ] },
+  ],
+  stocking: [
+    { label: 'Warehouse', items: [
+      { to: '/stocking', label: 'Dashboard', icon: '' },
+      { to: '/stocking/inventory', label: 'Inventory', icon: '' },
+      { to: '/stocking/orders', label: 'Orders', icon: '' },
+      { to: '/stocking/picks', label: 'Picks', icon: '' },
+      { to: '/stocking/reservations', label: 'Reservations', icon: '' },
+      { to: '/stocking/stock-shipments', label: 'Stock shipments', icon: '' },
+      { to: '/stocking/stock-returns', label: 'Stock returns', icon: '' },
+      { to: '/stocking/tickets', label: 'Tickets', icon: '' },
+    ] },
+  ],
+  confirmateur: [
+    { label: 'Confirmation', items: [
+      { to: '/confirmateur/pending', label: 'Pending orders', icon: '' },
+      { to: '/confirmateur/dashboard', label: 'Team dashboard', icon: '' },
+      { to: '/confirmateur/my-dashboard', label: 'My dashboard', icon: '' },
     ] },
   ],
 };
 
-const ROLE_LABEL: Record<string, string> = { admin: 'Admin', customer: 'Customer' };
+const ROLE_LABEL: Record<string, string> = { admin: 'Admin', support: 'Support', chef: 'Chef', stocking: 'Stocking', confirmateur: 'Order confirmer', dropshipper: 'Dropshipper', fournisseur: 'Supplier', seller: 'Seller', customer: 'Customer' };
 const ROLE_TONE: Record<string, string> = {
   admin: 'bg-red-100 text-red-700',
+  support: 'bg-blue-100 text-blue-700', chef: 'bg-violet-100 text-violet-700',
+  stocking: 'bg-amber-100 text-amber-700', confirmateur: 'bg-cyan-100 text-cyan-700',
+  dropshipper: 'bg-emerald-100 text-emerald-700', fournisseur: 'bg-orange-100 text-orange-700', seller: 'bg-orange-100 text-orange-700',
   customer: 'bg-emerald-100 text-emerald-700',
 };
 const BADGE_TONE: Record<string, string> = {
@@ -89,14 +181,6 @@ function VolumeHighIcon({ className = '' }: { className?: string }) {
   );
 }
 
-function CommentDotsIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg className={className} width="13" height="13" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true">
-      <path d="M256 448c141.4 0 256-93.1 256-208S397.4 32 256 32S0 125.1 0 240c0 45.1 17.7 86.8 47.7 120.9c-1.9 24.5-11.4 46.3-21.4 62.9c-5.5 9.2-11.1 16.6-15.2 21.6c-2.1 2.5-3.7 4.4-4.9 5.7c-.6 .6-1 1.1-1.3 1.4l-.3 .3 0 0 0 0 0 0 0 0c-4.6 4.6-5.9 11.4-3.4 17.4c2.5 6 8.3 9.9 14.8 9.9c28.7 0 57.6-8.9 81.6-19.3c22.9-10 42.4-21.9 54.3-30.6c31.8 11.5 67 17.9 104.1 17.9zM128 208a32 32 0 1 1 0 64 32 32 0 1 1 0-64zm128 0a32 32 0 1 1 0 64 32 32 0 1 1 0-64zm96 32a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z" />
-    </svg>
-  );
-}
-
 function BellIcon({ className = '' }: { className?: string }) {
   return (
     <svg className={className} width="16" height="16" viewBox="0 0 448 512" fill="currentColor" aria-hidden="true">
@@ -125,19 +209,11 @@ function NotificationBell() {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [count, setCount] = useState(0);
   const [muted, setMuted] = useState(() => localStorage.getItem('shopora.notif_muted') === '1');
-  const [callsChatsOn, setCallsChatsOn] = useState(() => localStorage.getItem('shopora.notif_calls_chats') !== '0');
 
   const toggleMute = () => {
     setMuted((m) => {
       const next = !m;
       localStorage.setItem('shopora.notif_muted', next ? '1' : '0');
-      return next;
-    });
-  };
-  const toggleCallsChats = () => {
-    setCallsChatsOn((c) => {
-      const next = !c;
-      localStorage.setItem('shopora.notif_calls_chats', next ? '1' : '0');
       return next;
     });
   };
@@ -207,17 +283,6 @@ function NotificationBell() {
                   }`}
                 >
                   {muted ? <VolumeXMarkIcon /> : <VolumeHighIcon />}
-                </button>
-                <button
-                  type="button"
-                  title={callsChatsOn ? 'Turn calls & chats off' : 'Turn calls & chats on'}
-                  onClick={toggleCallsChats}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
-                    callsChatsOn ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                  }`}
-                >
-                  <CommentDotsIcon />
-                  Calls & chats: {callsChatsOn ? 'on' : 'off'}
                 </button>
               </div>
             </div>
@@ -413,7 +478,7 @@ function NewProductToasts() {
   };
 
   useEffect(() => {
-    if (user?.role !== 'customer') return;
+    if (!['customer', 'dropshipper'].includes(user?.role ?? '')) return;
 
     let disposed = false;
 
@@ -461,7 +526,7 @@ function NewProductToasts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role]);
 
-  if (user?.role !== 'customer' || toasts.length === 0) return null;
+  if (!['customer', 'dropshipper'].includes(user?.role ?? '') || toasts.length === 0) return null;
 
   return (
     <div className="fixed end-4 top-4 z-[100] flex w-[min(92vw,22rem)] flex-col gap-2">
@@ -471,7 +536,7 @@ function NewProductToasts() {
           t={t}
           onClose={dismiss}
           onOpen={(toast) => {
-            navigate(`/dropshipper/store/${toast.productId}`);
+            navigate(`/shop/${toast.productId}`);
             dismiss(toast.id);
           }}
         />
@@ -657,7 +722,14 @@ export function Layout({ children }: { children: ReactNode }) {
   if (!user) return null;
 
   const sections = NAV[user.role] ?? [];
-  const home = user.role === 'admin' ? '/admin' : '/dropshipper';
+  const home = user.role === 'admin' ? '/admin'
+    : user.role === 'chef' ? '/chef'
+    : user.role === 'support' ? '/support/desk'
+    : user.role === 'stocking' ? '/stocking'
+    : user.role === 'confirmateur' ? '/confirmateur'
+    : user.role === 'fournisseur' || user.role === 'seller' ? '/fournisseur'
+    : user.role === 'dropshipper' ? '/dropshipper'
+    : '/shop';
 
   const childActive = (c: NavChild): boolean => {
     if (c.end) return location.pathname === c.to;
@@ -702,7 +774,7 @@ export function Layout({ children }: { children: ReactNode }) {
         {toggleIcon}
       </div>
 
-      {!collapsed && user.role === 'customer' && <DsPromoCards />}
+      {!collapsed && ['customer', 'dropshipper'].includes(user.role) && <DsPromoCards />}
 
       <nav className={`min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4 ${collapsed ? 'space-y-2' : ''}`}>
         {sections.map((section) => (
@@ -711,7 +783,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <div className="space-y-0.5">
               {section.items.map((item) => {
                 const matchesPath = (to: string) => location.pathname === to || location.pathname.startsWith(to + '/');
-                const active = hasActiveChild(item) || (!item.children && location.pathname === item.to) || (item.to !== home && !item.children && item.to !== '/admin' && item.to !== '/chef' && item.to !== '/support' && item.to !== '/fournisseur' && item.to !== '/dropshipper' && matchesPath(item.to));
+                const active = hasActiveChild(item) || (!item.children && location.pathname === item.to) || (item.to !== home && !item.children && item.to !== '/admin' && item.to !== '/support' && matchesPath(item.to));
                 const open = isGroupOpen(item);
                 return (
                   <div key={item.to}>
@@ -822,7 +894,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </nav>
 
       {/* footer */}
-      {!collapsed && user.role === 'seller' && (
+      {!collapsed && ['seller', 'fournisseur'].includes(user.role) && (
         <div className="border-t border-slate-100 p-3">
           <FourBadges />
         </div>
@@ -868,7 +940,7 @@ export function Layout({ children }: { children: ReactNode }) {
 <aside className="absolute inset-y-0 start-0 w-64 bg-white shadow-2xl">{sidebar}</aside>
               </div>
             )}
-            {location.pathname === '/dropshipper/store' && (
+            {location.pathname === '/shop' && (
               <div className="mb-5">
                 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
                   <img src="/homey.png?v=2" alt="Home banner" className="aspect-[720/265] w-full object-cover object-center" />
@@ -934,7 +1006,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </header>
 
         {/* marketplace home banner */}
-        {location.pathname === '/dropshipper/store' && (
+        {location.pathname === '/shop' && (
           <div>
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <img

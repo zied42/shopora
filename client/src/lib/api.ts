@@ -4,9 +4,10 @@ export interface AuthUser {
   id: number;
   name: string;
   email: string;
-  role: 'admin' | 'customer' | 'seller';
+  role: 'admin' | 'support' | 'chef' | 'stocking' | 'confirmateur' | 'dropshipper' | 'fournisseur' | 'customer' | 'seller';
   photo: string | null;
   cin: string | null;
+  balance: number;
   created_at: string;
 }
 
@@ -720,7 +721,7 @@ export interface Order {
   nombre_echange: string;
   status: 'draft' | 'ready' | 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled' | 'retour';
   payment_status: 'unpaid' | 'paid';
-  payment_method: 'stripe' | 'paypal' | 'cod' | string | null;
+  payment_method: 'flouci' | 'cod' | string | null;
   total: number;
   total_cost: number;
   profit: number;
@@ -910,6 +911,7 @@ export interface ChefReturn {
   retailer_name: string;
   retailer_code: string;
   retailer_premium: boolean;
+  retailer_photo?: string | null;
   address: string;
   destination_warehouse: string | null;
   products: ChefReturnProduct[];
@@ -1120,6 +1122,7 @@ export interface SupplierConversation {
   supplier_id: number;
   supplier_name: string;
   dropshipper_name: string | null;
+  dropshipper_id?: number | null;
   last_sender_id: number | null;
   last_sender_name: string | null;
   last_body: string | null;
@@ -2963,21 +2966,30 @@ export interface PlatformCommissionRow {
   order_number: string;
   dropshipper_id: number;
   dropshipper_name: string;
+  order_type: string;
   total: number;
   commission: number;
+  units: number;
+  seller_value: number;
+  valeur_entier: number;
+  platform_profit: number;
   delivered_at: string | null;
 }
 
 export interface PlatformEarnings {
   total: number;
+  commissions_total: number;
+  valeur_entier_total: number;
+  deposits_total: number;
   orders: PlatformCommissionRow[];
+  reservations: PlatformReservationRow[];
 }
 
 export interface Payout {
   id: number;
   recipient_id: number;
   recipient_name: string;
-  recipient_role: 'seller' | 'customer';
+  recipient_role: 'seller' | 'customer' | 'fournisseur' | 'dropshipper';
   amount: number;
   period: string | null;
   status: 'pending' | 'paid' | 'cancelled';
@@ -3226,11 +3238,6 @@ export async function getSellerDashboard(period: string, sellerId?: number): Pro
 
 export const timeFmt = (d: string) => new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-export async function ensureSupplierChat(supplierId: number): Promise<number> {
-  const res = await api.post('/chat/ensure-supplier', { supplier_id: supplierId });
-  return res.data.data.id;
-}
-
 export interface ConfirmateurPendingOrder {
   id: number;
   order_number: string;
@@ -3272,4 +3279,124 @@ export async function getConfirmateurDashboard(): Promise<ConfirmateurDashboard>
 
 export async function getConfirmateurMyDashboard(): Promise<ConfirmateurMyDashboard> {
   return apiGet('/confirmateur/my-dashboard');
+}
+
+export function partnerId(role: string, userId: number): string {
+  const prefix = role === 'fournisseur' ? 'FRN' : role === 'dropshipper' ? 'DRP' : 'USR';
+  return `${prefix}-${String(userId).padStart(4, '0')}`;
+}
+
+export async function ensureSupplierChat(supplierId: number): Promise<number> {
+  const res = await api.post('/chat/ensure-supplier', { supplier_id: supplierId });
+  return res.data.data.id;
+}
+
+export interface PlatformReservationRow {
+  id: number;
+  product_name: string;
+  dropshipper_id: number;
+  dropshipper_name: string;
+  quantity: number;
+  price: number;
+  deposit: number;
+  valeur_entier: number;
+  status: string;
+  created_at: string | null;
+}
+
+export async function fetchPlatformEarnings(): Promise<PlatformEarnings> {
+  return apiGet<PlatformEarnings>('/chef/platform-earnings');
+}
+
+export type ReservationStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
+export type ReservationRefillStatus = 'none' | 'requested' | 'received';
+
+export interface Reservation {
+  id: number;
+  dropshipper_id: number;
+  dropshipper_name: string;
+  fournisseur_id: number;
+  fournisseur_name: string;
+  product_id: number;
+  product_name: string;
+  product_image: string | null;
+  quantity: number;
+  price: number;
+  deposit: number;
+  status: ReservationStatus;
+  remaining: number;
+  refill_status: ReservationRefillStatus;
+  demanded_qty: number;
+  got_qty: number;
+  available_qty: number;
+  free_qty: number;
+  created_at: string;
+  accepted_at: string | null;
+  resolved_at: string | null;
+}
+
+export interface ReservationRefill {
+  id: number;
+  reservation_id: number;
+  product_id: number;
+  demanded_qty: number;
+  got_qty: number;
+  available_qty: number;
+  status: 'requested' | 'received';
+  created_at: string;
+  received_at: string | null;
+}
+
+export interface ReservationRefillPickupItem {
+  reservation_id: number;
+  dropshipper_name: string;
+  product_id: number;
+  product_name: string;
+  image_url: string | null;
+  expected_incoming: number;
+  supplier_stock: number;
+  our_stock: number;
+  period_consumption: number;
+  qty_non_confirmed: number;
+  qty_required_orders: number;
+  qty_to_request: number;
+  unit_price: number;
+}
+
+export interface ReservationRefillPickupSupplier {
+  supplier: string;
+  reservation_count: number;
+  total_qty_to_request: number;
+  items: ReservationRefillPickupItem[];
+}
+
+export async function listReservations(): Promise<Reservation[]> { return apiGet('/reservations'); }
+export async function createReservation(product_id: number, quantity: number): Promise<{ reservation: Reservation; balance: number }> {
+  return apiPost('/reservations', { product_id, quantity });
+}
+export async function resolveReservation(id: number, status: 'accepted' | 'rejected'): Promise<Reservation> {
+  return apiPatch(`/reservations/${id}/resolve`, { status });
+}
+export async function cancelReservation(id: number): Promise<{ reservation: Reservation; balance: number }> {
+  return apiPost(`/reservations/${id}/cancel`);
+}
+export async function updateReservationPrice(id: number, price: number): Promise<{ reservation: Reservation; balance: number }> {
+  return apiPatch(`/reservations/${id}/price`, { price });
+}
+export async function getReservationRefillPickupList(): Promise<{ suppliers: ReservationRefillPickupSupplier[] }> {
+  return apiGet('/reservations/refill-pickup-list');
+}
+export async function createReservationRefill(reservationId: number, demandedQty?: number): Promise<ReservationRefill> {
+  return apiPost(`/reservations/${reservationId}/refill`, { demanded_qty: demandedQty });
+}
+export async function recordReservationRefillGot(reservationId: number, gotQty: number): Promise<ReservationRefill> {
+  return apiPatch(`/reservations/${reservationId}/got`, { got_qty: gotQty });
+}
+export async function scanReservationRefill(code: string): Promise<{ refill: ReservationRefill; reservation: Reservation | null }> {
+  return apiPost('/reservations/scan', { code });
+}
+export const reservationRefillCode = (id: number) => `RSV-${id}`;
+export async function apiPatchRaw<T>(url: string, body?: unknown): Promise<T> {
+  const res = await api.patch(url, body);
+  return res.data as T;
 }

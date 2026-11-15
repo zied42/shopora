@@ -30,12 +30,13 @@ export function verifyToken(token: string): { id: number; role: Role } {
   return { id: payload.id as number, role };
 }
 
-/** Accept existing sessions during the role migration, but issue only canonical roles. */
+/** Validate every role supported by Shopora and the original Lunexa portals. */
 function normalizeRole(role: unknown): Role | null {
-  if (role === 'admin' || role === 'customer' || role === 'seller') return role;
-  if (role === 'dropshipper') return 'customer';
-  if (role === 'fournisseur') return 'seller';
-  if (role === 'chef' || role === 'support' || role === 'stocking' || role === 'confirmateur') return 'admin';
+  if (
+    role === 'admin' || role === 'support' || role === 'chef' || role === 'stocking' ||
+    role === 'confirmateur' || role === 'dropshipper' || role === 'fournisseur' ||
+    role === 'customer' || role === 'seller'
+  ) return role;
   return null;
 }
 

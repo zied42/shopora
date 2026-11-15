@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  apiErrorMessage, apiGet, apiPost, apiDelete, money, Product, SavedProduct, SupplierOffer, Invoice, CATEGORY_META, ProductCategory, ensureSupplierChat,
+  apiErrorMessage, apiGet, apiPost, apiDelete, money, Product, SavedProduct, SupplierOffer, Invoice, CATEGORY_META, ProductCategory,
 } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { Badge, Button, ButtonGhost, Card, EmptyState, Field, Modal, PageHeader, Select, Spinner, Textarea } from '../../components/ui';
@@ -60,9 +60,6 @@ export default function ProductPage() {
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<string>('description');
   const [ticketOpen, setTicketOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatBody, setChatBody] = useState('');
-  const [chatSending, setChatSending] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -117,7 +114,7 @@ export default function ProductPage() {
   if (!product) {
     return (
       <Card>
-        <EmptyState icon="📦" title="Product not found" hint={<Link className="text-brand-600 hover:underline" to="/dropshipper/store">Back to the store</Link>} />
+        <EmptyState icon="📦" title="Product not found" hint={<Link className="text-brand-600 hover:underline" to="/shop">Back to the store</Link>} />
       </Card>
     );
   }
@@ -144,37 +141,21 @@ export default function ProductPage() {
     }
   };
 
-  const sendChatMessage = async () => {
-    if (!product.fournisseur_id || !chatBody.trim()) return;
-    setChatSending(true);
-    try {
-      const convId = await ensureSupplierChat(product.fournisseur_id);
-      await apiPost(`/chat/${convId}/messages`, { body: chatBody.trim() });
-      setChatOpen(false);
-      setChatBody('');
-      navigate(`/dropshipper/chat/${convId}`);
-    } catch (e) {
-      alert(apiErrorMessage(e));
-    } finally {
-      setChatSending(false);
-    }
-  };
-
   return (
     <div>
       <PageHeader
         title={product.name}
         subtitle={`${catMeta.icon} ${catMeta.label} offer · ${product.sku ?? 'No SKU'}${product.barcode ? ` · ${product.barcode}` : ''}`}
         breadcrumb={[
-          { label: 'Home', to: '/dropshipper' },
-          { label: 'Marketplace', to: '/dropshipper/store' },
+          { label: 'Home', to: '/shop' },
+          { label: 'Marketplace', to: '/shop' },
           { label: product.name },
         ]}
         actions={
           <>
-            <ButtonGhost className="px-3 py-2 text-xs" onClick={() => navigate('/dropshipper/store')}>← Back to store</ButtonGhost>
+            <ButtonGhost className="px-3 py-2 text-xs" onClick={() => navigate('/shop')}>← Back to store</ButtonGhost>
             <Link
-              to="/dropshipper/products"
+              to="/saved"
               className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand-600/20 transition hover:bg-brand-700"
             >
               ⭐ My products
@@ -261,11 +242,8 @@ export default function ProductPage() {
               >
                 {busy ? 'Working…' : saved ? '✕ Remove from my list' : '＋ Add to my list'}
               </button>
-              <div className="grid grid-cols-2 gap-2">
-                <ButtonGhost className="justify-center gap-2 py-2.5 text-sm" onClick={() => setChatOpen(true)}>
-                  💬 Chat with supplier
-                </ButtonGhost>
-                <ButtonGhost className="justify-center gap-2 py-2.5 text-sm" onClick={() => setTicketOpen(true)}>
+              <div>
+                <ButtonGhost className="w-full justify-center gap-2 py-2.5 text-sm" onClick={() => setTicketOpen(true)}>
                   🎧 Create a ticket
                 </ButtonGhost>
               </div>
@@ -419,7 +397,7 @@ export default function ProductPage() {
               return (
                 <Card
                   key={o.product_id}
-                  onClick={() => navigate(`/dropshipper/store/${o.product_id}`)}
+                  onClick={() => navigate(`/shop/${o.product_id}`)}
                   className={`flex cursor-pointer flex-col gap-3 p-5 transition hover:-translate-y-0.5 hover:shadow-lg ${current ? 'ring-2 ring-brand-500' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -689,7 +667,7 @@ export default function ProductPage() {
                   hint={
                     <span className="text-sm text-slate-500">
                       Invoices are generated for delivered commandes. Create a commande from your{' '}
-                      <Link className="text-brand-600 hover:underline" to="/dropshipper/commandes/create">saved products</Link> to get started.
+                      <Link className="text-brand-600 hover:underline" to="/orders/create">saved products</Link> to get started.
                     </span>
                   }
                 />
@@ -742,25 +720,6 @@ export default function ProductPage() {
         </Card>
       </div>
       {ticketOpen && product && <ProductTicketModal product={product} onClose={() => setTicketOpen(false)} />}
-      {chatOpen && (
-        <Modal open onClose={() => setChatOpen(false)} title={`Chat with ${product.fournisseur_name ?? 'supplier'}`}>
-          <p className="mb-3 text-sm text-slate-500">Send a message to {product.fournisseur_name ?? 'your supplier'} about this product.</p>
-          <textarea
-            value={chatBody}
-            onChange={(e) => setChatBody(e.target.value)}
-            rows={3}
-            placeholder="Write your message…"
-            autoFocus
-            className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-          />
-          <div className="mt-3 flex justify-end gap-2">
-            <ButtonGhost onClick={() => setChatOpen(false)}>Cancel</ButtonGhost>
-            <Button onClick={sendChatMessage} disabled={chatSending || !chatBody.trim()}>
-              {chatSending ? 'Sending…' : 'Send message'}
-            </Button>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }

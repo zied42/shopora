@@ -22,15 +22,16 @@ const updateMeSchema = z.object({
   photo: z.string().nullable().optional(),
 });
 
-const LOGIN_ROLES: Role[] = ['admin', 'customer'];
+const LOGIN_ROLES: Role[] = ['admin', 'support', 'chef', 'stocking', 'confirmateur', 'dropshipper', 'fournisseur', 'customer', 'seller'];
 
-const publicUser = (u: { id: number; name: string; email: string; role: Role; photo: string | null; cin: string | null; created_at: string }) => ({
+const publicUser = (u: { id: number; name: string; email: string; role: Role; photo: string | null; cin: string | null; balance: number; created_at: string }) => ({
   id: u.id,
   name: u.name,
   email: u.email,
   role: u.role,
   photo: u.photo,
   cin: u.cin,
+  balance: u.balance,
   created_at: u.created_at,
 });
 

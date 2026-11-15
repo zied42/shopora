@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import Barcode from 'react-barcode';
-import { apiDelete, apiErrorMessage, apiPatch, apiPost, dateFmt, money, Order, TrackStep, DELIVERY_STATUS_LABELS } from '../lib/api';
+import { apiDelete, apiErrorMessage, apiPatch, apiPost, apiPostRaw, dateFmt, money, Order, TrackStep, DELIVERY_STATUS_LABELS } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { exportOrdersToCsv } from '../lib/export';
 import { Badge, Button, ButtonGhost, Card, EmptyState, Field, Input, Modal, orderStatusTone, paymentTone, Select, Spinner, Stars, Textarea } from './ui';
@@ -404,7 +404,21 @@ export function OrderList({ orders, loading, onRefresh, canExport }: OrderListPr
                           </>
                         )}
                         {user?.role === 'customer' && o.dropshipper_id === user.id && o.status === 'pending' && (
-                          <span className="text-[11px] font-medium text-slate-400">Sent — awaiting chef confirmation</span>
+                          o.payment_method === 'flouci' && o.payment_status !== 'paid' ? (
+                            <ButtonGhost
+                              className="px-3 py-1.5 text-xs"
+                              onClick={async () => {
+                                try {
+                                  const result = await apiPostRaw<{ data: { status: string; payment_url?: string } }>(`/payments/orders/${o.id}/flouci`, {});
+                                  if (result.data.status === 'paid') { onRefresh(); return; }
+                                  if (!result.data.payment_url) throw new Error('Flouci did not return a checkout link');
+                                  window.location.assign(result.data.payment_url);
+                                } catch (e) { alert(apiErrorMessage(e)); }
+                              }}
+                            >
+                              Pay with Flouci
+                            </ButtonGhost>
+                          ) : <span className="text-[11px] font-medium text-slate-400">Sent — awaiting chef confirmation</span>
                         )}
                         {user?.role === 'customer' && o.dropshipper_id === user.id && (
                           <ButtonGhost

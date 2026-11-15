@@ -283,7 +283,7 @@ export default function ApiDocs() {
       "products": ["Smart Watch Series 7"],
       "revenue": "149",
       "external_order_id": "CMD-2026-0123",
-      "external_order_url": "${window.location.origin}/dropshipper/commandes"
+      "external_order_url": "${window.location.origin}/orders"
     }
   ],
   "pagination": { "total": 1, "current_page": 1, "per_page": 20, "last_page": 1 }

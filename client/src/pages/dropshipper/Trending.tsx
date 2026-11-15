@@ -468,7 +468,7 @@ export default function DsTrending() {
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
           {/* Breadcrumb */}
           <nav className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
-            <Link to="/dropshipper" className="hover:text-slate-700 transition">Dashboard</Link>
+            <Link to="/shop" className="hover:text-slate-700 transition">Shop</Link>
             <span className="text-slate-300">/</span>
             <span className="text-slate-600">Trending</span>
           </nav>
@@ -589,7 +589,7 @@ export default function DsTrending() {
                     item={item}
                     rank={(safePage - 1) * pageSize + index}
                     list={false}
-                    onOpen={() => navigate(`/dropshipper/store/${item.best.product_id}`)}
+                    onOpen={() => navigate(`/shop/${item.best.product_id}`)}
                   />
                 ))}
               </div>
@@ -601,7 +601,7 @@ export default function DsTrending() {
                     item={item}
                     rank={(safePage - 1) * pageSize + index}
                     list={true}
-                    onOpen={() => navigate(`/dropshipper/store/${item.best.product_id}`)}
+                    onOpen={() => navigate(`/shop/${item.best.product_id}`)}
                   />
                 ))}
               </div>

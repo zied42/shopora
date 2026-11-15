@@ -1,14 +1,17 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth, useApiError } from '../context/AuthContext';
 import { Button, Field, Input } from '../components/ui';
 import AuthShell from '../components/AuthShell';
 
-const FRONT_ROLES = ['customer', 'admin'];
+const FRONT_ROLES = ['customer', 'dropshipper', 'seller', 'fournisseur'];
+const STAFF_ROLES = ['admin', 'chef', 'support', 'stocking', 'confirmateur'];
 
-export default function Login() {
+export default function Login({ staffOnly = false }: { staffOnly?: boolean }) {
   const { login, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const err = useApiError();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -19,12 +22,13 @@ export default function Login() {
     setLoading(true);
     try {
       const user = await login(email, password);
-      if (!FRONT_ROLES.includes(user.role)) {
+      const acceptedRoles = staffOnly ? STAFF_ROLES : FRONT_ROLES;
+      if (!acceptedRoles.includes(user.role)) {
         logout();
-        err(new Error('This account cannot sign in to Shopora.'));
+        err(new Error(staffOnly ? 'Use the customer login for this account.' : 'Use the staff login for this account.'));
         return;
       }
-      navigate('/', { replace: true });
+      navigate('/', { replace: true, state: { from: location.pathname } });
     } catch (err2) {
       err(err2);
     } finally {
@@ -50,6 +54,7 @@ export default function Login() {
       <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
         No account? <Link to="/register" className="font-semibold text-brand-600 hover:underline">Create one</Link>
       </p>
+      {!staffOnly && <p className="mt-2 text-center text-sm text-slate-500 dark:text-slate-400"><Link to="/staff-login" className="font-semibold text-brand-600 hover:underline">Staff sign in</Link></p>}
     </AuthShell>
   );
 }
