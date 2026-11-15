@@ -222,16 +222,15 @@ function statusGroup(orders: OrderFull[]) {
 export function apiV1Routes(store: Store): Router {
   const router = Router();
 
-  const globalRateLimit = expressRateLimit({
+  router.use(expressRateLimit({
     windowMs: 60_000,
     limit: 300,
-    keyGenerator: (req) => `api-user:${req.user.id}`,
     standardHeaders: true,
     legacyHeaders: false,
-  });
+  }));
   router.use((req, res, next) => {
     void bearerAuth(store, req, res)
-      .then((authenticated) => { if (authenticated) globalRateLimit(req, res, next); })
+      .then((authenticated) => { if (authenticated) next(); })
       .catch(next);
   });
 
