@@ -4,6 +4,7 @@ import { OrderFull, ProductWithSupplier } from '../store/types';
 import { partnerId } from '../lib/partnerId';
 import { env } from '../config/env';
 import { ah } from '../middleware/auth';
+import expressRateLimit from 'express-rate-limit';
 
 const ORIGIN = (_req: Request) => env.API_BASE_URL.replace(/\/$/, '');
 
@@ -221,7 +222,13 @@ function statusGroup(orders: OrderFull[]) {
 export function apiV1Routes(store: Store): Router {
   const router = Router();
 
-  const globalRateLimit = rateLimit('global', 300, 60000);
+  const globalRateLimit = expressRateLimit({
+    windowMs: 60_000,
+    limit: 300,
+    keyGenerator: (req) => `api-user:${req.user.id}`,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
   router.use((req, res, next) => {
     void bearerAuth(store, req, res)
       .then((authenticated) => { if (authenticated) globalRateLimit(req, res, next); })

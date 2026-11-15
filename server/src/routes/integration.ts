@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ah, requireAuth, requireRole } from '../middleware/auth';
 import { Store } from '../store';
 import { logFd, logLz } from '../lib/logger';
+import expressRateLimit from 'express-rate-limit';
 import {
   fdCreateOrder,
   fdBulkCreate,
@@ -34,26 +35,13 @@ async function getToken(store: Store, companyId: string): Promise<string> {
 }
 
 const LZ_COMPANY = 'lazajella';
-const integrationHits = new Map<number, { count: number; resetAt: number }>();
-let integrationSweepAt = 0;
-function integrationRateLimit(req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) {
-  const now = Date.now();
-  if (now - integrationSweepAt > 60_000) {
-    for (const [userId, entry] of integrationHits) if (entry.resetAt <= now) integrationHits.delete(userId);
-    integrationSweepAt = now;
-  }
-  const userId = req.user.id;
-  const current = integrationHits.get(userId);
-  if (current && current.resetAt > now && current.count >= 60) {
-    res.status(429).json({ success: false, message: 'Integration rate limit exceeded. Try again later.' });
-    return;
-  }
-  if (integrationHits.size >= 10000 && !current) integrationHits.delete(integrationHits.keys().next().value as number);
-  integrationHits.set(userId, current && current.resetAt > now
-    ? { ...current, count: current.count + 1 }
-    : { count: 1, resetAt: now + 60_000 });
-  next();
-}
+const integrationRateLimit = expressRateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  keyGenerator: (req) => `integration-user:${req.user.id}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 async function getLzAuth(store: Store): Promise<ReturnType<typeof parseLzCredentials>> {
   const cfg = await store.getIntegrationSetting(LZ_COMPANY);
