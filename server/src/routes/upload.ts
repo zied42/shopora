@@ -92,7 +92,28 @@ export function uploadRoutes(store: Store): Router {
   const router = Router();
   router.use(requireAuth);
 
-  router.post('/', upload.single('file'), ah(async (req, res) => {
+  const uploadCounts = new Map<number, { count: number; resetAt: number }>();
+  let lastSweep = 0;
+  const limitUploads = (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
+    const now = Date.now();
+    if (now - lastSweep > 60_000) {
+      for (const [userId, entry] of uploadCounts) if (entry.resetAt <= now) uploadCounts.delete(userId);
+      lastSweep = now;
+    }
+    const userId = req.user.id;
+    const current = uploadCounts.get(userId);
+    if (current && current.resetAt > now && current.count >= 40) {
+      res.status(429).json({ success: false, error: 'Upload limit reached. Try again later.' });
+      return;
+    }
+    if (uploadCounts.size >= 20000 && !current) uploadCounts.delete(uploadCounts.keys().next().value as number);
+    uploadCounts.set(userId, current && current.resetAt > now
+      ? { ...current, count: current.count + 1 }
+      : { count: 1, resetAt: now + 24 * 60 * 60_000 });
+    next();
+  };
+
+  router.post('/', limitUploads, upload.single('file'), ah(async (req, res) => {
     if (!req.file) {
       res.status(400).json({ success: false, error: 'No file uploaded' });
       return;
@@ -114,7 +135,7 @@ export function uploadRoutes(store: Store): Router {
     res.status(201).json({ success: true, data: { url } });
   }));
 
-  router.post('/video', uploadVideo.single('file'), ah(async (req, res) => {
+  router.post('/video', limitUploads, uploadVideo.single('file'), ah(async (req, res) => {
     if (!req.file) {
       res.status(400).json({ success: false, error: 'No video uploaded' });
       return;
