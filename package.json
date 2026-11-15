@@ -16,7 +16,7 @@
     "typecheck": "npm run typecheck --workspaces"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0",
+    "concurrently": "^10.0.7",
     "wait-on": "^9.1.0"
   },
   "dependencies": {
