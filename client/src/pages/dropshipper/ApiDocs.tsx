@@ -135,7 +135,7 @@ export default function ApiDocs() {
             <CodeBlock
               title="First call"
               code={`curl -X GET "${BASE}/me" \\
-  -H "Authorization: Bearer sk_live_YOUR_API_KEY"`}
+  -H "Authorization: Bearer $SHOPORA_API_KEY"`}
             />
           </Section>
 
@@ -143,7 +143,7 @@ export default function ApiDocs() {
             <P>Send your API key in the Authorization header as a Bearer token:</P>
             <CodeBlock
               title="Request header"
-              code={'Authorization: Bearer sk_live_YOUR_API_KEY'}
+              code={'Authorization: Bearer $SHOPORA_API_KEY'}
             />
             <P>
               A missing or malformed header returns <InlineCode>401 Unauthorized</InlineCode>; an unknown or revoked key returns <InlineCode>403 Forbidden</InlineCode>.

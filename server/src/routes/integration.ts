@@ -34,6 +34,26 @@ async function getToken(store: Store, companyId: string): Promise<string> {
 }
 
 const LZ_COMPANY = 'lazajella';
+const integrationHits = new Map<number, { count: number; resetAt: number }>();
+let integrationSweepAt = 0;
+function integrationRateLimit(req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) {
+  const now = Date.now();
+  if (now - integrationSweepAt > 60_000) {
+    for (const [userId, entry] of integrationHits) if (entry.resetAt <= now) integrationHits.delete(userId);
+    integrationSweepAt = now;
+  }
+  const userId = req.user.id;
+  const current = integrationHits.get(userId);
+  if (current && current.resetAt > now && current.count >= 60) {
+    res.status(429).json({ success: false, message: 'Integration rate limit exceeded. Try again later.' });
+    return;
+  }
+  if (integrationHits.size >= 10000 && !current) integrationHits.delete(integrationHits.keys().next().value as number);
+  integrationHits.set(userId, current && current.resetAt > now
+    ? { ...current, count: current.count + 1 }
+    : { count: 1, resetAt: now + 60_000 });
+  next();
+}
 
 async function getLzAuth(store: Store): Promise<ReturnType<typeof parseLzCredentials>> {
   const cfg = await store.getIntegrationSetting(LZ_COMPANY);
@@ -139,7 +159,7 @@ export function integrationRoutes(store: Store): Router {
     res.json({ success: true, data });
   }));
 
-  router.post('/first-delivery/etat', requireAuth, requireRole('admin', 'chef', 'stocking'), ah(async (req, res) => {
+  router.post('/first-delivery/etat', requireAuth, requireRole('admin', 'chef', 'stocking'), integrationRateLimit, ah(async (req, res) => {
     const token = await getToken(store, 'first-delivery');
     const { barCode } = req.body as { barCode: string };
     if (!barCode) { res.status(400).json({ success: false, message: 'barCode required' }); return; }
@@ -147,7 +167,7 @@ export function integrationRoutes(store: Store): Router {
     res.json({ success: true, data });
   }));
 
-  router.post('/first-delivery/filter', requireAuth, requireRole('admin', 'chef', 'stocking'), ah(async (req, res) => {
+  router.post('/first-delivery/filter', requireAuth, requireRole('admin', 'chef', 'stocking'), integrationRateLimit, ah(async (req, res) => {
     const token = await getToken(store, 'first-delivery');
     const data = await fdFilterOrders(token, req.body);
     res.json({ success: true, data });
@@ -181,11 +201,11 @@ export function integrationRoutes(store: Store): Router {
     res.json({ success: true, data });
   }));
 
-  router.get('/delivery-statuses', requireAuth, requireRole('admin', 'chef', 'stocking'), ah(async (_req, res) => {
+  router.get('/delivery-statuses', requireAuth, requireRole('admin', 'chef', 'stocking'), integrationRateLimit, ah(async (_req, res) => {
     res.json({ success: true, data: FD_STATUS_LABELS });
   }));
 
-  router.post('/first-delivery/sync-status/:orderId', requireAuth, requireRole('admin', 'chef', 'stocking'), ah(async (req, res) => {
+  router.post('/first-delivery/sync-status/:orderId', requireAuth, requireRole('admin', 'chef', 'stocking'), integrationRateLimit, ah(async (req, res) => {
     const orderId = Number(req.params.orderId);
     const order = await store.getOrder(orderId);
     if (!order) { res.status(404).json({ success: false, message: 'Order not found' }); return; }
@@ -279,7 +299,7 @@ export function integrationRoutes(store: Store): Router {
     res.status(result.ok ? 200 : 502).json({ success: result.ok, data: result });
   }));
 
-  router.post('/lazajella/detail', requireAuth, requireRole('admin', 'chef', 'stocking'), ah(async (req, res) => {
+  router.post('/lazajella/detail', requireAuth, requireRole('admin', 'chef', 'stocking'), integrationRateLimit, ah(async (req, res) => {
     const auth = await getLzAuth(store);
     const { barCode, codeBar } = req.body as { barCode?: string; codeBar?: string };
     const code = barCode ?? codeBar;
@@ -288,7 +308,7 @@ export function integrationRoutes(store: Store): Router {
     res.status(result.ok ? 200 : 502).json({ success: result.ok, data: result });
   }));
 
-  router.post('/lazajella/list', requireAuth, requireRole('admin', 'chef', 'stocking'), ah(async (req, res) => {
+  router.post('/lazajella/list', requireAuth, requireRole('admin', 'chef', 'stocking'), integrationRateLimit, ah(async (req, res) => {
     const auth = await getLzAuth(store);
     const { barCode, codeBar } = req.body as { barCode?: string; codeBar?: string };
     const code = barCode ?? codeBar ?? '';
@@ -311,7 +331,7 @@ export function integrationRoutes(store: Store): Router {
     res.status(result.ok ? 200 : 502).json({ success: result.ok, data: result });
   }));
 
-  router.post('/lazajella/cities', requireAuth, requireRole('admin', 'chef', 'stocking'), ah(async (_req, res) => {
+  router.post('/lazajella/cities', requireAuth, requireRole('admin', 'chef', 'stocking'), integrationRateLimit, ah(async (_req, res) => {
     const auth = await getLzAuth(store);
     const result = await lzCities(auth);
     res.status(result.ok ? 200 : 502).json({ success: result.ok, data: result });

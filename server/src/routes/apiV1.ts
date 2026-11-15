@@ -97,21 +97,21 @@ function parseDateOr422(value: unknown, name: string, res: Response): string | u
 }
 
 /* ----------------------------------------------------------- auth via Bearer key */
-async function bearerAuth(store: Store, req: Request, res: Response, next: NextFunction): Promise<void> {
+async function bearerAuth(store: Store, req: Request, res: Response): Promise<boolean> {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing API key. Send "Authorization: Bearer YOUR_API_KEY".' });
-    return;
+    return false;
   }
   const ctx = await store.findUserByApiKey(header.slice(7).trim());
   if (!ctx) {
     res.status(403).json({ error: 'Invalid or revoked API key.' });
-    return;
+    return false;
   }
   req.user = { id: ctx.user.id, role: ctx.user.role, name: ctx.user.name, email: ctx.user.email };
   res.locals.apiKeyId = ctx.keyId;
   void store.touchApiKey(ctx.keyId).catch(() => undefined);
-  next();
+  return true;
 }
 
 /* -------------------------------------------------------------- DTO mappers */
@@ -221,7 +221,12 @@ function statusGroup(orders: OrderFull[]) {
 export function apiV1Routes(store: Store): Router {
   const router = Router();
 
-  router.use((req, res, next) => { void bearerAuth(store, req, res, next).catch(next); });
+  const globalRateLimit = rateLimit('global', 300, 60000);
+  router.use((req, res, next) => {
+    void bearerAuth(store, req, res)
+      .then((authenticated) => { if (authenticated) globalRateLimit(req, res, next); })
+      .catch(next);
+  });
 
   /* ---------------------------------------------------------------- meta */
   router.get('/me', rateLimit('read', 120, 60000), (req, res) => {

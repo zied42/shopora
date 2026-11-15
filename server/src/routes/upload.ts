@@ -38,6 +38,14 @@ const uploadVideo = multer({
   },
 });
 
+function safeUploadPath(filename: string): string {
+  const safeName = path.basename(filename);
+  if (!/^(img|doc|vid)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|gif|webp|pdf|mp4|webm)$/i.test(safeName)) {
+    throw new Error('Invalid generated upload filename');
+  }
+  return path.join(uploadsDir, safeName);
+}
+
 function contentTypeFor(name: string): string {
   const ext = path.extname(name).toLowerCase();
   if (ext === '.pdf') return 'application/pdf';
@@ -94,7 +102,7 @@ export function uploadRoutes(store: Store): Router {
 
   const uploadCounts = new Map<number, { count: number; resetAt: number }>();
   let lastSweep = 0;
-  const limitUploads = (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
+  const rateLimitUploads = (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
     const now = Date.now();
     if (now - lastSweep > 60_000) {
       for (const [userId, entry] of uploadCounts) if (entry.resetAt <= now) uploadCounts.delete(userId);
@@ -113,21 +121,22 @@ export function uploadRoutes(store: Store): Router {
     next();
   };
 
-  router.post('/', limitUploads, upload.single('file'), ah(async (req, res) => {
+  router.post('/', rateLimitUploads, upload.single('file'), ah(async (req, res) => {
     if (!req.file) {
       res.status(400).json({ success: false, error: 'No file uploaded' });
       return;
     }
-    const uploadData = fs.readFileSync(req.file.path);
+    const localPath = safeUploadPath(req.file.filename);
+    const uploadData = fs.readFileSync(localPath);
     if (!matchesFileSignature(req.file.mimetype, uploadData)) {
-      fs.unlinkSync(req.file.path);
+      fs.unlinkSync(localPath);
       res.status(400).json({ success: false, error: 'File content does not match an allowed file type' });
       return;
     }
     const url = `${env.API_BASE_URL}/uploads/${req.file.filename}`;
     try {
       await store.saveUploadFile(req.file.filename, uploadData, req.file.mimetype || 'application/octet-stream');
-      fs.unlinkSync(req.file.path);
+      fs.unlinkSync(localPath);
     } catch {
       // Persistence store unavailable: the file stays only on local disk
       // (and will be lost on the next server restart), the URL still works meanwhile.
@@ -135,21 +144,22 @@ export function uploadRoutes(store: Store): Router {
     res.status(201).json({ success: true, data: { url } });
   }));
 
-  router.post('/video', limitUploads, uploadVideo.single('file'), ah(async (req, res) => {
+  router.post('/video', rateLimitUploads, uploadVideo.single('file'), ah(async (req, res) => {
     if (!req.file) {
       res.status(400).json({ success: false, error: 'No video uploaded' });
       return;
     }
-    const uploadData = fs.readFileSync(req.file.path);
+    const localPath = safeUploadPath(req.file.filename);
+    const uploadData = fs.readFileSync(localPath);
     if (!matchesFileSignature(req.file.mimetype, uploadData)) {
-      fs.unlinkSync(req.file.path);
+      fs.unlinkSync(localPath);
       res.status(400).json({ success: false, error: 'File content does not match an allowed file type' });
       return;
     }
     const url = `${env.API_BASE_URL}/uploads/${req.file.filename}`;
     try {
       await store.saveUploadFile(req.file.filename, uploadData, req.file.mimetype || 'video/mp4');
-      fs.unlinkSync(req.file.path);
+      fs.unlinkSync(localPath);
     } catch {
       // Persistence store unavailable: the file stays only on local disk.
     }
